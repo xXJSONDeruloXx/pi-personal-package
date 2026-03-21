@@ -1,0 +1,15 @@
+{
+  "name": "pi-personal-package",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Dan's personal pi prompts, skills, and setup notes",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "pi": {
+    "prompts": ["./prompts"],
+    "skills": ["./skills"]
+  },
+  "scripts": {
+    "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py"
+  }
+}

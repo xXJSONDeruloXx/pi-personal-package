@@ -1,0 +1,18 @@
+{
+  "defaultProvider": "github-copilot",
+  "defaultModel": "gpt-5.4",
+  "defaultThinkingLevel": "high",
+  "theme": "dark",
+  "quietStartup": false,
+  "packages": [
+    "https://github.com/xXJSONDeruloXx/pi-extensions",
+    "npm:@calesennett/pi-codex-usage",
+    "npm:tau-mirror",
+    "npm:pi-codex-web-search",
+    "npm:latchkey"
+  ],
+  "pi-codex-usage": {
+    "usageMode": "left",
+    "refreshWindow": "7d"
+  }
+}
