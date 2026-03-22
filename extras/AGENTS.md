@@ -6,8 +6,23 @@
   - Prefer using Latchkey for Discord API access when available.
   - Summarize the request, inspect the GameNative codebase for the relevant implementation, and determine whether the work is actionable.
   - If actionable and the user has not said otherwise, branch from `upstream/master` and start implementing.
+- For broad GameNative Discord triage without a specific message link, prefer the Discord HTTP API via Latchkey over GUI review.
+  - Prefer the `gamenative-discord-research` skill from the personal pi package for topic/theme investigations.
+  - GameNative guild id: `1378308569287622737`
+  - Useful forum channels:
+    - `bug-reports`: `1384098122715758682`
+    - `feature-requests`: `1438076056782504037`
+  - Use `GET /channels/<forum_id>/threads/search?limit=<n>` to list recent forum posts when authenticated as the user session.
+    - The parent forum's `/messages` endpoint may be empty even when the forum has active posts.
+    - `GET /guilds/<guild_id>/threads/active` is bot-only and will fail for the Latchkey user session.
+  - In the `threads/search` response, the OP content is in `first_messages`; match each item by `channel_id == thread.id`.
+  - Resolve tag ids by reading `GET /channels/<forum_id>` and mapping `available_tags`.
+  - For targeted historical searches across channels, use guild-wide message search in addition to forum pagination.
+  - When reporting findings, clearly separate direct evidence from hypotheses; if the user asks for notes, journal them in Markdown at repo root.
+  - Do not assume supporter-only channels are readable from the current account; e.g. `priority-feature-requests` may return `Missing Access`.
 - When opening a PR for work that came from a provided Discord bug / feature link, put that Discord URL in the PR description.
   - If there is no provided Discord link, leave the PR description blank unless the user asks for something else.
+- For GameNative PRs and commit messages the agent creates, prefer conventional/semantic prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, or `test:`.
 - Proactively update this global `AGENTS.md` when the user corrects agent behavior or when stable usage patterns emerge from repeated interactions.
 
 ## Computer-use tools

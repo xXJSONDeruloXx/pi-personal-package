@@ -25,6 +25,8 @@ pi update
 ## Included in the pi package
 
 - `prompts/pdiff.md`
+- `skills/ci-fix-watch/`
+- `skills/gamenative-discord-research/`
 - `skills/pr-review-watch/`
 
 These load automatically after `pi install ...` because they are declared in `package.json` under the `pi` key.
