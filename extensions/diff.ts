@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { AutocompleteItem, Theme, TUI } from "@mariozechner/pi-tui";
-import { Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type { AutocompleteItem, Theme } from "@mariozechner/pi-tui";
+import { Box, Text } from "@mariozechner/pi-tui";
 import {
 	detectDefaultBranch,
 	execShell,
@@ -22,117 +22,22 @@ type DiffView = {
 };
 
 const HEADER = "/DIFF////////////////////////////////////////////////////////////";
-const FOOTER_LEGEND = "↑/↓ to scroll   pgup/pgdn to page   home/end to jump   q to quit";
+const DIFF_MESSAGE_TYPE = "diff-view";
 
-class DiffPager {
-	private scrollOffset = 0;
-
-	constructor(
-		private readonly tui: TUI,
-		private readonly theme: Theme,
-		private readonly title: string,
-		private readonly lines: string[],
-		private readonly done: () => void,
-	) {
-		this.enterAlternateScreen();
-		this.tui.terminal.clearScreen();
-		this.tui.requestRender(true);
+function colorizeLine(theme: Theme, line: string): string {
+	if (!line) return "";
+	if (line === HEADER) return theme.fg("accent", theme.bold(line));
+	if (/^(Repo:|Branch:|Base:|Note:|Untracked files:)/.test(line)) return theme.fg("dim", line);
+	if (/^(Failed to generate|Not in a git repository|Unable to locate repo root|Could not detect origin)/.test(line)) {
+		return theme.fg("warning", line);
 	}
-
-	handleInput(data: string): void {
-		if (data === "q" || data === "Q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
-			this.done();
-			return;
-		}
-
-		const pageSize = this.getContentHeight();
-		const maxOffset = this.getMaxOffset(pageSize);
-		let nextOffset = this.scrollOffset;
-
-		if (matchesKey(data, Key.up) || data === "k") nextOffset -= 1;
-		else if (matchesKey(data, Key.down) || data === "j") nextOffset += 1;
-		else if (matchesKey(data, Key.pageUp)) nextOffset -= pageSize;
-		else if (matchesKey(data, Key.pageDown)) nextOffset += pageSize;
-		else if (matchesKey(data, Key.home)) nextOffset = 0;
-		else if (matchesKey(data, Key.end)) nextOffset = maxOffset;
-		else return;
-
-		this.scrollOffset = Math.max(0, Math.min(maxOffset, nextOffset));
-		this.tui.requestRender();
+	if (/^(diff --git|index |--- |\+\+\+ |new file mode|deleted file mode|similarity index|rename from |rename to |Binary files )/.test(line)) {
+		return theme.fg("accent", line);
 	}
-
-	dispose(): void {
-		this.exitAlternateScreen();
-	}
-
-	invalidate(): void {}
-
-	render(width: number): string[] {
-		const contentHeight = this.getContentHeight();
-		const maxOffset = this.getMaxOffset(contentHeight);
-		this.scrollOffset = Math.max(0, Math.min(maxOffset, this.scrollOffset));
-
-		const totalLines = this.lines.length;
-		const start = this.scrollOffset;
-		const end = Math.min(totalLines, start + contentHeight);
-		const visible = this.lines.slice(start, end);
-		const percent = maxOffset === 0 ? 100 : Math.round((start / maxOffset) * 100);
-		const range = totalLines === 0 ? "0/0" : `${start + 1}-${end}/${totalLines}`;
-
-		const headerLeft = this.theme.fg("accent", this.theme.bold(this.title));
-		const headerRight = this.theme.fg("dim", range);
-		const footerLeft = this.theme.fg("dim", FOOTER_LEGEND);
-		const footerRight = this.theme.fg("dim", `${percent}%`);
-
-		const rendered: string[] = [this.joinLeftRight(headerLeft, headerRight, width)];
-
-		for (const line of visible) {
-			rendered.push(truncateToWidth(this.colorizeLine(line), width));
-		}
-
-		for (let i = visible.length; i < contentHeight; i++) {
-			rendered.push("");
-		}
-
-		rendered.push(this.joinLeftRight(footerLeft, footerRight, width));
-		return rendered;
-	}
-
-	private enterAlternateScreen(): void {
-		this.tui.terminal.write("\x1b[?1049h");
-	}
-
-	private exitAlternateScreen(): void {
-		this.tui.terminal.write("\x1b[?1049l");
-	}
-
-	private getContentHeight(): number {
-		return Math.max(1, this.tui.terminal.rows - 2);
-	}
-
-	private getMaxOffset(contentHeight: number): number {
-		return Math.max(0, this.lines.length - contentHeight);
-	}
-
-	private joinLeftRight(left: string, right: string, width: number): string {
-		const pad = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
-		return truncateToWidth(left + " ".repeat(pad) + right, width, "", true);
-	}
-
-	private colorizeLine(line: string): string {
-		if (!line) return "";
-		if (/^(Repo:|Branch:|Base:|Note:|Untracked files:)/.test(line)) return this.theme.fg("dim", line);
-		if (/^(Failed to generate|Not in a git repository|Unable to locate repo root|Could not detect origin)/.test(line)) {
-			return this.theme.fg("warning", line);
-		}
-		if (/^(diff --git|index |--- |\+\+\+ |new file mode|deleted file mode|similarity index|rename from |rename to |Binary files )/.test(line)) {
-			return this.theme.fg("accent", line);
-		}
-		if (line.startsWith("@@")) return this.theme.fg("toolDiffContext", line);
-		if (line.startsWith("+") && !line.startsWith("+++")) return this.theme.fg("toolDiffAdded", line);
-		if (line.startsWith("-") && !line.startsWith("---")) return this.theme.fg("toolDiffRemoved", line);
-		return line;
-	}
+	if (line.startsWith("@@")) return theme.fg("toolDiffContext", line);
+	if (line.startsWith("+") && !line.startsWith("+++")) return theme.fg("toolDiffAdded", line);
+	if (line.startsWith("-") && !line.startsWith("---")) return theme.fg("toolDiffRemoved", line);
+	return line;
 }
 
 function getArgumentCompletions(prefix: string): AutocompleteItem[] | null {
@@ -188,7 +93,7 @@ function buildViewerLines(view: DiffView): string[] {
 		if (lines.length > 0) lines.push("");
 		lines.push("No diff.");
 	}
-	return lines;
+	return [HEADER, "", view.title, ...lines];
 }
 
 async function runGitInRepo(pi: ExtensionAPI, repoRoot: string, args: string[], timeout = 20_000) {
@@ -369,6 +274,16 @@ async function buildDiffView(pi: ExtensionAPI, mode: DiffMode): Promise<DiffView
 }
 
 export default function (pi: ExtensionAPI) {
+	pi.registerMessageRenderer(DIFF_MESSAGE_TYPE, (message, _options, theme) => {
+		const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+		const colored = message.content
+			.split(/\r?\n/)
+			.map((line) => colorizeLine(theme, line))
+			.join("\n");
+		box.addChild(new Text(colored, 0, 0));
+		return box;
+	});
+
 	pi.registerCommand("diff", {
 		description: "Show a git diff for the working tree, staged changes, or origin base",
 		getArgumentCompletions,
@@ -386,13 +301,18 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const view = await buildDiffView(pi, mode);
+			const finalText = renderDocument(view.title, view.lines, view.body);
+
 			if (ctx.hasUI) {
-				const viewerLines = buildViewerLines(view);
-				await ctx.ui.custom<void>((tui, theme, _kb, done) => new DiffPager(tui, theme, view.title, viewerLines, done));
+				pi.sendMessage({
+					customType: DIFF_MESSAGE_TYPE,
+					content: buildViewerLines(view).join("\n"),
+					display: true,
+					details: { mode, title: view.title },
+				});
 				return;
 			}
 
-			const finalText = renderDocument(view.title, view.lines, view.body);
 			console.log(finalText);
 		},
 	});
