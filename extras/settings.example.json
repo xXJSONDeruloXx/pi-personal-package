@@ -5,11 +5,7 @@
   "theme": "dark",
   "quietStartup": false,
   "packages": [
-    "git:git@github.com:xXJSONDeruloXx/pi-personal-package",
-    "npm:@calesennett/pi-codex-usage",
-    "npm:tau-mirror",
-    "npm:pi-codex-web-search",
-    "npm:latchkey"
+    "git:git@github.com:xXJSONDeruloXx/pi-personal-package"
   ],
   "pi-codex-usage": {
     "usageMode": "left",

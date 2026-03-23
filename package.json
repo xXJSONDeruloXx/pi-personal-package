@@ -9,10 +9,30 @@
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*"
   },
+  "dependencies": {
+    "@calesennett/pi-codex-usage": "^0.1.11",
+    "latchkey": "^2.5.3",
+    "pi-codex-web-search": "^0.1.5",
+    "tau-mirror": "^1.0.7"
+  },
+  "bundledDependencies": [
+    "@calesennett/pi-codex-usage",
+    "latchkey",
+    "pi-codex-web-search",
+    "tau-mirror"
+  ],
   "pi": {
-    "extensions": ["./extensions"],
+    "extensions": [
+      "./extensions",
+      "./node_modules/@calesennett/pi-codex-usage/extensions/codex-usage-status.ts",
+      "./node_modules/tau-mirror/extensions/mirror-server.ts",
+      "./node_modules/pi-codex-web-search/src/index.ts"
+    ],
     "prompts": ["./prompts"],
-    "skills": ["./skills"]
+    "skills": [
+      "./skills",
+      "./node_modules/latchkey/dist/skills/generic"
+    ]
   },
   "scripts": {
     "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py"
