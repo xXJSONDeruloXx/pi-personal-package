@@ -24,6 +24,7 @@ pi update
 
 ## Included in the pi package
 
+- `extensions/upstream-diff-footer.ts`
 - `prompts/pdiff.md`
 - `skills/ci-fix-watch/`
 - `skills/gamenative-discord-research/`
@@ -43,7 +44,7 @@ These are versioned here for sync, but they are **not** auto-loaded by pi packag
 
 - Copy `extras/AGENTS.md` to `~/.pi/agent/AGENTS.md` if you want the same global instructions.
 - Merge `extras/settings.example.json` into `~/.pi/agent/settings.json` if you want the same default model/theme/third-party packages.
-- The diff footer extension is intentionally stored as disabled source. If you want it later, copy it into `~/.pi/agent/extensions/` or wire it into another package/local extension path manually.
+- `extensions/upstream-diff-footer.ts` is now loaded by the package automatically.
 
 ## Local development on this machine
 

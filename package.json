@@ -5,7 +5,11 @@
   "description": "Dan's personal pi prompts, skills, and setup notes",
   "keywords": ["pi-package"],
   "type": "module",
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
   "pi": {
+    "extensions": ["./extensions"],
     "prompts": ["./prompts"],
     "skills": ["./skills"]
   },
