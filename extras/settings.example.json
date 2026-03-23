@@ -6,7 +6,6 @@
   "quietStartup": false,
   "packages": [
     "git:git@github.com:xXJSONDeruloXx/pi-personal-package",
-    "https://github.com/xXJSONDeruloXx/pi-extensions",
     "npm:@calesennett/pi-codex-usage",
     "npm:tau-mirror",
     "npm:pi-codex-web-search",

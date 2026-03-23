@@ -22,6 +22,12 @@ After you push updates here, other devices can pull the latest package with:
 pi update
 ```
 
+If you previously installed the separate `pi-extensions` package, remove it so `pi-personal-package` is the single source of truth:
+
+```bash
+pi remove https://github.com/xXJSONDeruloXx/pi-extensions
+```
+
 ## Included in the pi package
 
 - `extensions/copilot-usage-widget.ts`
@@ -39,7 +45,6 @@ These are versioned here for sync, but they are **not** auto-loaded by pi packag
 
 - `extras/AGENTS.md`
 - `extras/settings.example.json`
-- `extras/extensions-disabled/upstream-diff-footer.ts`
 
 ### Manual sync bits
 
