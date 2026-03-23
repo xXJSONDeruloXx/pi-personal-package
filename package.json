@@ -6,7 +6,8 @@
   "keywords": ["pi-package"],
   "type": "module",
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*"
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*"
   },
   "pi": {
     "extensions": ["./extensions"],

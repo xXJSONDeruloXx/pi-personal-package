@@ -1,6 +1,6 @@
 # pi-personal-package
 
-Personal pi package for syncing my custom prompts and skills across machines.
+Personal pi package for syncing my custom prompts, skills, and extensions across machines.
 
 ## Install on other devices
 
@@ -24,7 +24,8 @@ pi update
 
 ## Included in the pi package
 
-- `extensions/upstream-diff-footer.ts`
+- `extensions/copilot-usage-widget.ts`
+- `extensions/upstream-master-diff-footer.ts`
 - `prompts/pdiff.md`
 - `skills/ci-fix-watch/`
 - `skills/gamenative-discord-research/`
@@ -44,7 +45,7 @@ These are versioned here for sync, but they are **not** auto-loaded by pi packag
 
 - Copy `extras/AGENTS.md` to `~/.pi/agent/AGENTS.md` if you want the same global instructions.
 - Merge `extras/settings.example.json` into `~/.pi/agent/settings.json` if you want the same default model/theme/third-party packages.
-- `extensions/upstream-diff-footer.ts` is now loaded by the package automatically.
+- The package now includes the Copilot usage widget and the upstream diff footer automatically.
 
 ## Local development on this machine
 
