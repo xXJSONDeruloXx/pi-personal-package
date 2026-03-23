@@ -37,7 +37,6 @@ pi remove npm:latchkey
 ### Local resources in this repo
 - `extensions/copilot-usage-widget.ts`
 - `extensions/upstream-master-diff-footer.ts`
-- `prompts/pdiff.md`
 - `skills/ci-fix-watch/`
 - `skills/gamenative-discord-research/`
 - `skills/pr-review-watch/`
