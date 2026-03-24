@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 
 const UPSTREAM_STATUS_KEY = "upstream-master-diff-upstream";
 const UNCOMMITTED_STATUS_KEY = "upstream-master-diff-uncommitted";
+const DIFF_WIDGET_KEY = "upstream-master-diff-widget";
 const BASE_REF_CANDIDATES = ["upstream/master", "upstream/main", "origin/master", "origin/main"] as const;
 
 type DiffStats = {
@@ -85,29 +86,29 @@ async function computeStats(pi: ExtensionAPI): Promise<FooterStats | null> {
 
 function renderDiffStats(ctx: ExtensionContext, stats: DiffStats, label: string): string {
 	const theme = ctx.ui.theme;
+	const base = theme.fg("muted", `${label}:`);
 	const plus = theme.fg("toolDiffAdded", `+${stats.added}`);
 	const minus = theme.fg("toolDiffRemoved", `-${stats.removed}`);
 	const files = theme.fg("dim", `${stats.files}f`);
-	const base = theme.fg("muted", label);
 	const binary = stats.binary > 0 ? ` ${theme.fg("dim", `bin:${stats.binary}`)}` : "";
-	return `${plus} ${minus} ${files} ${base}${binary}`;
+	return `${base} ${plus} ${minus} ${files}${binary}`;
 }
 
 function setStatuses(ctx: ExtensionContext, stats: FooterStats | null): void {
+	ctx.ui.setStatus(UPSTREAM_STATUS_KEY, undefined);
+	ctx.ui.setStatus(UNCOMMITTED_STATUS_KEY, undefined);
+
 	if (!stats) {
-		ctx.ui.setStatus(UPSTREAM_STATUS_KEY, undefined);
-		ctx.ui.setStatus(UNCOMMITTED_STATUS_KEY, undefined);
+		ctx.ui.setWidget(DIFF_WIDGET_KEY, undefined);
 		return;
 	}
 
-	ctx.ui.setStatus(
-		UPSTREAM_STATUS_KEY,
-		stats.upstream && stats.baseRef ? renderDiffStats(ctx, stats.upstream, `vs ${stats.baseRef}`) : undefined,
-	);
-	ctx.ui.setStatus(
-		UNCOMMITTED_STATUS_KEY,
+	const lines = [
+		stats.upstream && stats.baseRef ? renderDiffStats(ctx, stats.upstream, stats.baseRef) : undefined,
 		stats.uncommitted ? renderDiffStats(ctx, stats.uncommitted, "uncommitted") : undefined,
-	);
+	].filter((line): line is string => Boolean(line));
+
+	ctx.ui.setWidget(DIFF_WIDGET_KEY, lines.length > 0 ? lines : undefined, { placement: "belowEditor" });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -147,18 +148,18 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_end", triggerRefresh);
 
 	pi.registerCommand("diff-footer-refresh", {
-		description: `Refresh footer diff status against ${BASE_REF_CANDIDATES.join(" / ")} and uncommitted changes`,
+		description: `Refresh diff widget against ${BASE_REF_CANDIDATES.join(" / ")} and uncommitted changes`,
 		handler: async (_args, ctx) => {
 			const stats = await refresh(ctx);
 			if (!stats) {
-				ctx.ui.notify("Diff footer refreshed. No git repo or no changes detected.", "info");
+				ctx.ui.notify("Diff widget refreshed. No git repo or no changes detected.", "info");
 				return;
 			}
 
 			const baseMessage = stats.baseRef
 				? `against ${stats.baseRef}`
 				: `without an upstream/origin base ref (${BASE_REF_CANDIDATES.join(", ")})`;
-			ctx.ui.notify(`Diff footer refreshed ${baseMessage} and uncommitted changes`, "info");
+			ctx.ui.notify(`Diff widget refreshed ${baseMessage} and uncommitted changes`, "info");
 		},
 	});
 }
