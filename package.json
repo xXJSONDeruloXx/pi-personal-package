@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "description": "Dan's personal pi prompts, skills, and setup notes",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "type": "module",
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
@@ -12,23 +14,22 @@
   "dependencies": {
     "@calesennett/pi-codex-usage": "^0.1.11",
     "latchkey": "^2.5.3",
-    "pi-codex-web-search": "^0.1.5",
-    "tau-mirror": "^1.0.7"
+    "pi-codex-web-search": "^0.1.5"
   },
-  "bundledDependencies": [
+  "bundleDependencies": [
     "@calesennett/pi-codex-usage",
     "latchkey",
-    "pi-codex-web-search",
-    "tau-mirror"
+    "pi-codex-web-search"
   ],
   "pi": {
     "extensions": [
       "./extensions",
       "./node_modules/@calesennett/pi-codex-usage/extensions/codex-usage-status.ts",
-      "./node_modules/tau-mirror/extensions/mirror-server.ts",
       "./node_modules/pi-codex-web-search/src/index.ts"
     ],
-    "prompts": ["./prompts"],
+    "prompts": [
+      "./prompts"
+    ],
     "skills": [
       "./skills",
       "./node_modules/latchkey/dist/skills/generic"

@@ -27,7 +27,6 @@ If you previously installed separate extension / third-party pi packages, remove
 ```bash
 pi remove https://github.com/xXJSONDeruloXx/pi-extensions
 pi remove npm:@calesennett/pi-codex-usage
-pi remove npm:tau-mirror
 pi remove npm:pi-codex-web-search
 pi remove npm:latchkey
 ```
@@ -44,8 +43,6 @@ pi remove npm:latchkey
 ### Bundled third-party resources loaded through `node_modules/`
 - `@calesennett/pi-codex-usage`
   - `extensions/codex-usage-status.ts`
-- `tau-mirror`
-  - `extensions/mirror-server.ts`
 - `pi-codex-web-search`
   - `src/index.ts`
 - `latchkey`
