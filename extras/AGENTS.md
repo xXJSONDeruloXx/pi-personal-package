@@ -23,6 +23,7 @@
 - When opening a PR for work that came from a provided Discord bug / feature link, put that Discord URL in the PR description.
   - If there is no provided Discord link, leave the PR description blank unless the user asks for something else.
 - For GameNative PRs and commit messages the agent creates, prefer conventional/semantic prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, or `test:`.
+- When syncing GameNative `master` with `upstream/master`, fetch `upstream` first, do not create a merge commit, and keep `master`, `origin/master`, and `upstream/master` 1:1. If needed, hard-reset `master` to `upstream/master` and push with `--force-with-lease` after verifying the worktree is clean.
 - Proactively update this global `AGENTS.md` when the user corrects agent behavior or when stable usage patterns emerge from repeated interactions.
 
 ## Computer-use tools
