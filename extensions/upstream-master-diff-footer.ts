@@ -1,9 +1,13 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { parseNumstat, refExists } from "./lib/git.ts";
 
-const UPSTREAM_STATUS_KEY = "upstream-master-diff-upstream";
-const UNCOMMITTED_STATUS_KEY = "upstream-master-diff-uncommitted";
-const DIFF_WIDGET_KEY = "upstream-master-diff-widget";
-const BASE_REF_CANDIDATES = ["upstream/master", "upstream/main", "origin/master", "origin/main"] as const;
+const STATUS_KEY = "base-diff";
+const DEFAULT_BASE_REF_CANDIDATES = [
+	"upstream/master",
+	"upstream/main",
+	"origin/main",
+	"origin/master",
+] as const;
 
 type DiffStats = {
 	added: number;
@@ -13,129 +17,116 @@ type DiffStats = {
 };
 
 type FooterStats = {
-	upstream: DiffStats | null;
+	base: DiffStats | null;
 	uncommitted: DiffStats | null;
 	baseRef: string | null;
 };
 
-function parseNumstat(output: string): DiffStats {
-	const stats: DiffStats = { added: 0, removed: 0, files: 0, binary: 0 };
-	const lines = output.split(/\r?\n/).filter((line) => line.trim().length > 0);
-	for (const line of lines) {
-		const [addedRaw = "", removedRaw = ""] = line.split("\t", 3);
-		const added = Number.parseInt(addedRaw, 10);
-		const removed = Number.parseInt(removedRaw, 10);
-
-		if (Number.isFinite(added)) stats.added += added;
-		if (Number.isFinite(removed)) stats.removed += removed;
-		if (!Number.isFinite(added) || !Number.isFinite(removed)) stats.binary += 1;
-		stats.files += 1;
-	}
-	return stats;
+async function detectRemoteHead(pi: ExtensionAPI, remote: string): Promise<string | null> {
+	const remoteInfo = await pi.exec("git", ["remote", "show", remote], { timeout: 2_000 });
+	if (remoteInfo.code !== 0) return null;
+	const match = remoteInfo.stdout.match(/HEAD branch:\s*(\S+)/);
+	return match?.[1] ? `${remote}/${match[1]}` : null;
 }
 
 async function resolveBaseRef(pi: ExtensionAPI): Promise<string | null> {
-	for (const candidate of BASE_REF_CANDIDATES) {
-		const hasBase = await pi.exec("git", ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`], {
-			timeout: 1500,
-		});
-		if (hasBase.code === 0) {
-			return candidate;
-		}
+	const detected = [await detectRemoteHead(pi, "upstream"), await detectRemoteHead(pi, "origin")].filter(
+		(value): value is string => Boolean(value),
+	);
+
+	for (const candidate of [...detected, ...DEFAULT_BASE_REF_CANDIDATES]) {
+		if (await refExists(pi, candidate)) return candidate;
 	}
 	return null;
 }
 
 async function computeStats(pi: ExtensionAPI): Promise<FooterStats | null> {
-	const inRepo = await pi.exec("git", ["rev-parse", "--is-inside-work-tree"], { timeout: 1500 });
+	const inRepo = await pi.exec("git", ["rev-parse", "--is-inside-work-tree"], { timeout: 1_500 });
 	if (inRepo.code !== 0 || inRepo.stdout.trim() !== "true") {
 		return null;
 	}
 
 	const baseRef = await resolveBaseRef(pi);
 
-	let upstream: DiffStats | null = null;
+	let base: DiffStats | null = null;
 	if (baseRef) {
 		const diff = await pi.exec(
 			"git",
 			["diff", "--numstat", "--find-renames", "--diff-filter=ACDMRTUXB", baseRef],
-			{ timeout: 4000 },
+			{ timeout: 4_000 },
 		);
 		if (diff.code === 0) {
-			upstream = parseNumstat(diff.stdout);
+			base = parseNumstat(diff.stdout);
 		}
 	}
 
 	let uncommitted: DiffStats | null = null;
-	const head = await pi.exec("git", ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], {
-		timeout: 1500,
-	});
-	if (head.code === 0) {
+	if (await refExists(pi, "HEAD")) {
 		const diff = await pi.exec(
 			"git",
 			["diff", "--numstat", "--find-renames", "--diff-filter=ACDMRTUXB", "HEAD"],
-			{ timeout: 4000 },
+			{ timeout: 4_000 },
 		);
 		if (diff.code === 0) {
 			uncommitted = parseNumstat(diff.stdout);
 		}
 	}
 
-	return { upstream, uncommitted, baseRef };
+	return { base, uncommitted, baseRef };
 }
 
 function renderDiffStats(ctx: ExtensionContext, stats: DiffStats, label: string): string {
 	const theme = ctx.ui.theme;
-	const base = theme.fg("muted", `${label}:`);
 	const plus = theme.fg("toolDiffAdded", `+${stats.added}`);
 	const minus = theme.fg("toolDiffRemoved", `-${stats.removed}`);
 	const files = theme.fg("dim", `${stats.files}f`);
+	const base = theme.fg("muted", label);
 	const binary = stats.binary > 0 ? ` ${theme.fg("dim", `bin:${stats.binary}`)}` : "";
-	return `${base} ${plus} ${minus} ${files}${binary}`;
+	return `${plus} ${minus} ${files} ${base}${binary}`;
 }
 
-function setStatuses(ctx: ExtensionContext, stats: FooterStats | null): void {
-	ctx.ui.setStatus(UPSTREAM_STATUS_KEY, undefined);
-	ctx.ui.setStatus(UNCOMMITTED_STATUS_KEY, undefined);
-
-	if (!stats) {
-		ctx.ui.setWidget(DIFF_WIDGET_KEY, undefined);
-		return;
+function renderStatus(ctx: ExtensionContext, stats: FooterStats): string {
+	const sections: string[] = [];
+	if (stats.base && stats.baseRef) {
+		sections.push(renderDiffStats(ctx, stats.base, `vs ${stats.baseRef}`));
 	}
-
-	const lines = [
-		stats.upstream && stats.baseRef ? renderDiffStats(ctx, stats.upstream, stats.baseRef) : undefined,
-		stats.uncommitted ? renderDiffStats(ctx, stats.uncommitted, "uncommitted") : undefined,
-	].filter((line): line is string => Boolean(line));
-
-	ctx.ui.setWidget(DIFF_WIDGET_KEY, lines.length > 0 ? lines : undefined, { placement: "belowEditor" });
+	if (stats.uncommitted) {
+		sections.push(renderDiffStats(ctx, stats.uncommitted, "uncommitted"));
+	}
+	return sections.join(` ${ctx.ui.theme.fg("dim", "·")} `);
 }
 
 export default function (pi: ExtensionAPI) {
+	let enabled = true;
 	let refreshing = false;
 	let refreshQueued = false;
 
-	const refresh = async (ctx: ExtensionContext): Promise<FooterStats | null> => {
-		if (!ctx.hasUI) return null;
+	const refresh = async (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) return;
+		if (!enabled) {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+			return;
+		}
 
 		if (refreshing) {
 			refreshQueued = true;
-			return null;
+			return;
 		}
 
 		refreshing = true;
-		let latestStats: FooterStats | null = null;
 		try {
 			do {
 				refreshQueued = false;
 				const stats = await computeStats(pi);
-				latestStats = stats && (stats.upstream || stats.uncommitted) ? stats : null;
-				setStatuses(ctx, latestStats);
+				if (stats && (stats.base || stats.uncommitted)) {
+					ctx.ui.setStatus(STATUS_KEY, renderStatus(ctx, stats));
+				} else {
+					ctx.ui.setStatus(STATUS_KEY, undefined);
+				}
 			} while (refreshQueued);
 		} finally {
 			refreshing = false;
 		}
-		return latestStats;
 	};
 
 	const triggerRefresh = async (_event: unknown, ctx: ExtensionContext) => {
@@ -148,18 +139,25 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_end", triggerRefresh);
 
 	pi.registerCommand("diff-footer-refresh", {
-		description: `Refresh diff widget against ${BASE_REF_CANDIDATES.join(" / ")} and uncommitted changes`,
+		description: "Refresh footer diff status against preferred upstream/origin base and uncommitted changes",
 		handler: async (_args, ctx) => {
-			const stats = await refresh(ctx);
-			if (!stats) {
-				ctx.ui.notify("Diff widget refreshed. No git repo or no changes detected.", "info");
+			await refresh(ctx);
+			ctx.ui.notify("Diff footer refreshed", "info");
+		},
+	});
+
+	pi.registerCommand("diff-footer-toggle", {
+		description: "Toggle diff footer display",
+		handler: async (_args, ctx) => {
+			enabled = !enabled;
+			if (!enabled) {
+				ctx.ui.setStatus(STATUS_KEY, undefined);
+				ctx.ui.notify("Diff footer hidden", "info");
 				return;
 			}
 
-			const baseMessage = stats.baseRef
-				? `against ${stats.baseRef}`
-				: `without an upstream/origin base ref (${BASE_REF_CANDIDATES.join(", ")})`;
-			ctx.ui.notify(`Diff widget refreshed ${baseMessage} and uncommitted changes`, "info");
+			await refresh(ctx);
+			ctx.ui.notify("Diff footer shown", "info");
 		},
 	});
 }

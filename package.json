@@ -1,38 +1,50 @@
 {
   "name": "pi-personal-package",
   "private": true,
-  "version": "0.1.0",
-  "description": "Dan's personal pi prompts, skills, and setup notes",
+  "version": "0.2.0",
+  "description": "Dan's personal Pi distro for non-work machines",
   "keywords": [
-    "pi-package"
+    "pi-package",
+    "pi",
+    "personal"
   ],
   "type": "module",
-  "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*"
-  },
+  "files": [
+    "extensions/",
+    "extras/",
+    "skills/",
+    "README.md"
+  ],
   "dependencies": {
     "@calesennett/pi-codex-usage": "^0.1.11",
-    "latchkey": "^2.5.3",
-    "pi-codex-web-search": "^0.1.5"
+    "latchkey": "^2.5.5",
+    "pi-codex-web-search": "^0.1.5",
+    "pi-interactive-shell": "^0.10.1",
+    "pi-stash": "^0.2.0",
+    "pi-tool-display": "^0.3.1"
   },
-  "bundleDependencies": [
+  "bundledDependencies": [
     "@calesennett/pi-codex-usage",
     "latchkey",
-    "pi-codex-web-search"
+    "pi-codex-web-search",
+    "pi-interactive-shell",
+    "pi-stash",
+    "pi-tool-display"
   ],
   "pi": {
     "extensions": [
       "./extensions",
       "./node_modules/@calesennett/pi-codex-usage/extensions/codex-usage-status.ts",
-      "./node_modules/pi-codex-web-search/src/index.ts"
-    ],
-    "prompts": [
-      "./prompts"
+      "./node_modules/pi-codex-web-search/src/index.ts",
+      "./node_modules/pi-interactive-shell/index.ts",
+      "./node_modules/pi-stash/src/stash.ts",
+      "./node_modules/pi-tool-display/index.ts"
     ],
     "skills": [
       "./skills",
-      "./node_modules/latchkey/dist/skills/generic"
+      "./node_modules/latchkey/dist/skills/generic",
+      "./node_modules/pi-interactive-shell/SKILL.md",
+      "./node_modules/pi-interactive-shell/examples/skills"
     ]
   },
   "scripts": {

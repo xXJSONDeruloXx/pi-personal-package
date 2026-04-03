@@ -1,8 +1,17 @@
 # pi-personal-package
 
-Personal pi package for syncing my prompts, skills, extensions, and bundled third-party pi packages across machines.
+Personal Pi package for non-work machines.
 
-## Install on other devices
+This repo is the **single source of truth** for your personal Pi setup:
+
+- personal extensions
+- personal skills
+- selected third-party Pi packages bundled into one install
+- lightweight config examples and notes
+
+It is intentionally **not** a mirror of the work-machine `pi-miyagi` stack. The goal is a clean personal distro with the best generally useful ergonomics, without corporate-specific workflows.
+
+## Install
 
 If the repo is private, install over SSH:
 
@@ -10,77 +19,91 @@ If the repo is private, install over SSH:
 pi install git:git@github.com:xXJSONDeruloXx/pi-personal-package
 ```
 
-If the repo is public, this shorthand also works:
+If the repo is public, this also works:
 
 ```bash
 pi install git:github.com/xXJSONDeruloXx/pi-personal-package
 ```
 
-After you push updates here, other devices can pull the latest package with:
+Update later with:
 
 ```bash
 pi update
 ```
 
-If you previously installed separate extension / third-party pi packages, remove them so `pi-personal-package` is the single source of truth:
+## What this package includes
 
-```bash
-pi remove https://github.com/xXJSONDeruloXx/pi-extensions
-pi remove npm:@calesennett/pi-codex-usage
-pi remove npm:pi-codex-web-search
-pi remove npm:latchkey
-```
-
-## Included in the pi package
-
-### Local resources in this repo
+### Local extensions in this repo
+- `extensions/auto-title.ts`
 - `extensions/copilot-usage-widget.ts`
+- `extensions/diff.ts`
+- `extensions/notifications.ts`
 - `extensions/upstream-master-diff-footer.ts`
+
+### Local skills in this repo
 - `skills/ci-fix-watch/`
+- `skills/gamenative-cloud-save-debug/`
 - `skills/gamenative-discord-research/`
 - `skills/pr-review-watch/`
 
-### Bundled third-party resources loaded through `node_modules/`
-- `@calesennett/pi-codex-usage`
-  - `extensions/codex-usage-status.ts`
-- `pi-codex-web-search`
-  - `src/index.ts`
-- `latchkey`
-  - `dist/skills/generic/`
+### Bundled third-party extensions and skills
+This package also bundles a curated set of reusable Pi packages so personal machines can be bootstrapped from a single install.
 
-These load automatically after `pi install ...` because they are declared in `package.json` under the `pi` key.
+#### Bundled extensions
+- `@calesennett/pi-codex-usage`
+- `pi-codex-web-search`
+- `pi-interactive-shell`
+- `pi-stash`
+- `pi-tool-display`
+
+#### Bundled skills
+- `latchkey`
+- `pi-interactive-shell`
+
+## Design choices
+
+### Personal-focused, not work-cloned
+This package intentionally keeps:
+- GameNative-specific research/debugging skills
+- personal Copilot usage status
+- generic Pi UX improvements learned from work
+
+It intentionally leaves out:
+- Jira / enterprise workflow glue
+- corporate Slack / Outlook / Teams packaging
+- Databricks-specific work setup
+- work-only operational skills from `pi-miyagi`
+
+### Base-aware diff footer
+The diff footer prefers upstream when it exists, then falls back to origin.
+That makes it friendlier for personal repos that track `upstream/master` while still working fine in ordinary origin-only repos.
 
 ## Extras kept in the repo
 
-These are versioned here for sync, but they are **not** auto-loaded by pi packages:
+These are versioned here for sync, but not automatically loaded by Pi:
 
 - `extras/AGENTS.md`
 - `extras/settings.example.json`
 
-### Manual sync bits
+## Local development
 
-- Copy `extras/AGENTS.md` to `~/.pi/agent/AGENTS.md` if you want the same global instructions.
-- Merge `extras/settings.example.json` into `~/.pi/agent/settings.json` if you want the same default model/theme and package-specific config.
+This repo can also be used as a local path package during development:
 
-## Local development on this machine
-
-This Mac is configured to load the package from the local working tree:
-
-```text
-/Users/danhimebauch/Developer/pi-personal-package
+```bash
+pi install /absolute/path/to/pi-personal-package
 ```
 
-That means edits in this repo become the local source of truth. After changing prompts, skills, or extensions, run `/reload` in pi or restart pi.
+Then after edits, run `/reload` in Pi.
 
 Typical workflow:
 
 ```bash
-cd /Users/danhimebauch/Developer/pi-personal-package
+cd /Users/dhimebauch/Developer/personal/pi-personal-package
 npm install
 npm run check
 git status
 git add .
-git commit -m "Update pi package"
+git commit -m "feat: update personal pi package"
 git push
 ```
 
