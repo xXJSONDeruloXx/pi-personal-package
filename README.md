@@ -45,6 +45,7 @@ pi update
 - `skills/gamenative-cloud-save-debug/`
 - `skills/gamenative-discord-research/`
 - `skills/pr-review-watch/`
+- `skills/ralph-wiggum/` (compatibility wrapper for the bundled Ralph skill)
 
 ### Bundled third-party extensions and skills
 This package also bundles a curated set of reusable Pi packages so personal machines can be bootstrapped from a single install.

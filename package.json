@@ -30,7 +30,8 @@
     "pi-interactive-shell": "^0.10.1",
     "pi-stash": "^0.2.0",
     "pi-tool-display": "^0.3.1",
-    "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git"
+    "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git",
+    "yaml": "^2.8.1"
   },
   "bundledDependencies": [
     "@0xkobold/pi-autoupdate",
@@ -71,7 +72,6 @@
     "skills": [
       "./skills",
       "./node_modules/@aliou/pi-processes/skills/pi-processes",
-      "./node_modules/@tmustier/pi-ralph-wiggum/SKILL.md",
       "./node_modules/latchkey/dist/skills/generic",
       "./node_modules/pi-interactive-shell/SKILL.md",
       "./node_modules/pi-interactive-shell/examples/skills"
