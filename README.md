@@ -54,6 +54,7 @@ This package also bundles a curated set of reusable Pi packages so personal mach
 - `@aliou/pi-processes`
 - `@calesennett/pi-codex-usage`
 - `@ifi/pi-extension-subagents`
+- `@tmustier/pi-files-widget`
 - `@tmustier/pi-ralph-wiggum`
 - `pi-codex-web-search`
 - `pi-command-center`
@@ -78,6 +79,7 @@ This package intentionally keeps:
 - personal Copilot usage status
 - generic Pi UX improvements learned from work
 - selected autonomy / process / TUI tools from the work machine
+- an in-terminal file browser/viewer for fast local inspection
 
 It intentionally leaves out:
 - Jira / enterprise workflow glue
@@ -92,6 +94,13 @@ That makes it friendlier for personal repos that track `upstream/master` while s
 ### Subagent choice
 This package bundles `@ifi/pi-extension-subagents` as the default subagent system.
 It is the richer option and a better long-term personal default than carrying multiple overlapping subagent packages.
+
+### Files widget note
+`@tmustier/pi-files-widget` expects some local CLI tools for best output quality:
+
+```bash
+brew install bat git-delta glow
+```
 
 ## Extras kept in the repo
 
