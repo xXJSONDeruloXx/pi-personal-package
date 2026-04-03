@@ -87,8 +87,8 @@ It intentionally leaves out:
 - Databricks-specific work setup
 - work-only operational skills from `pi-miyagi`
 
-### Base-aware diff footer
-The diff footer prefers upstream when it exists, then falls back to origin.
+### Base-aware diff widget
+The diff widget appears above the prompt bar and prefers upstream when it exists, then falls back to origin.
 That makes it friendlier for personal repos that track `upstream/master` while still working fine in ordinary origin-only repos.
 
 ### Subagent choice
@@ -119,11 +119,13 @@ pi install /absolute/path/to/pi-personal-package
 
 Then after edits, run `/reload` in Pi.
 
+Note: this repo intentionally does **not** commit a `package-lock.json`. For this package, git installs plus `bundledDependencies` can leave bundled packages as empty directories, which prevents the third-party Pi extensions and skills from loading.
+
 Typical workflow:
 
 ```bash
 cd /Users/dhimebauch/Developer/personal/pi-personal-package
-npm install
+npm install --package-lock=false
 npm run check
 git status
 git add .
@@ -134,6 +136,6 @@ git push
 ## Sanity check
 
 ```bash
-npm install
+npm install --package-lock=false
 npm run check
 ```

@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { truncateToWidth, type Theme } from "@mariozechner/pi-tui";
 import { parseNumstat, refExists } from "./lib/git.ts";
 
 const STATUS_KEY = "base-diff";
+const WIDGET_KEY = "base-diff-widget";
 const DEFAULT_BASE_REF_CANDIDATES = [
 	"upstream/master",
 	"upstream/main",
@@ -16,7 +18,7 @@ type DiffStats = {
 	binary: number;
 };
 
-type FooterStats = {
+type DiffWidgetStats = {
 	base: DiffStats | null;
 	uncommitted: DiffStats | null;
 	baseRef: string | null;
@@ -40,7 +42,7 @@ async function resolveBaseRef(pi: ExtensionAPI): Promise<string | null> {
 	return null;
 }
 
-async function computeStats(pi: ExtensionAPI): Promise<FooterStats | null> {
+async function computeStats(pi: ExtensionAPI): Promise<DiffWidgetStats | null> {
 	const inRepo = await pi.exec("git", ["rev-parse", "--is-inside-work-tree"], { timeout: 1_500 });
 	if (inRepo.code !== 0 || inRepo.stdout.trim() !== "true") {
 		return null;
@@ -75,8 +77,7 @@ async function computeStats(pi: ExtensionAPI): Promise<FooterStats | null> {
 	return { base, uncommitted, baseRef };
 }
 
-function renderDiffStats(ctx: ExtensionContext, stats: DiffStats, label: string): string {
-	const theme = ctx.ui.theme;
+function renderDiffStats(theme: Theme, stats: DiffStats, label: string): string {
 	const plus = theme.fg("toolDiffAdded", `+${stats.added}`);
 	const minus = theme.fg("toolDiffRemoved", `-${stats.removed}`);
 	const files = theme.fg("dim", `${stats.files}f`);
@@ -85,15 +86,37 @@ function renderDiffStats(ctx: ExtensionContext, stats: DiffStats, label: string)
 	return `${plus} ${minus} ${files} ${base}${binary}`;
 }
 
-function renderStatus(ctx: ExtensionContext, stats: FooterStats): string {
+function renderWidgetLine(theme: Theme, stats: DiffWidgetStats): string {
 	const sections: string[] = [];
 	if (stats.base && stats.baseRef) {
-		sections.push(renderDiffStats(ctx, stats.base, `vs ${stats.baseRef}`));
+		sections.push(renderDiffStats(theme, stats.base, `vs ${stats.baseRef}`));
 	}
 	if (stats.uncommitted) {
-		sections.push(renderDiffStats(ctx, stats.uncommitted, "uncommitted"));
+		sections.push(renderDiffStats(theme, stats.uncommitted, "uncommitted"));
 	}
-	return sections.join(` ${ctx.ui.theme.fg("dim", "·")} `);
+	return sections.join(` ${theme.fg("dim", "·")} `);
+}
+
+function clearUI(ctx: ExtensionContext): void {
+	ctx.ui.setStatus(STATUS_KEY, undefined);
+	ctx.ui.setWidget(WIDGET_KEY, undefined);
+}
+
+function applyUI(ctx: ExtensionContext, stats: DiffWidgetStats | null): void {
+	if (!ctx.hasUI) return;
+	ctx.ui.setStatus(STATUS_KEY, undefined);
+
+	if (!stats || (!stats.base && !stats.uncommitted)) {
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		return;
+	}
+
+	ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
+		render(width: number): string[] {
+			return [truncateToWidth(renderWidgetLine(theme, stats), width)];
+		},
+		invalidate() {},
+	}));
 }
 
 export default function (pi: ExtensionAPI) {
@@ -104,7 +127,7 @@ export default function (pi: ExtensionAPI) {
 	const refresh = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) return;
 		if (!enabled) {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
+			clearUI(ctx);
 			return;
 		}
 
@@ -118,11 +141,7 @@ export default function (pi: ExtensionAPI) {
 			do {
 				refreshQueued = false;
 				const stats = await computeStats(pi);
-				if (stats && (stats.base || stats.uncommitted)) {
-					ctx.ui.setStatus(STATUS_KEY, renderStatus(ctx, stats));
-				} else {
-					ctx.ui.setStatus(STATUS_KEY, undefined);
-				}
+				applyUI(ctx, stats);
 			} while (refreshQueued);
 		} finally {
 			refreshing = false;
@@ -139,25 +158,25 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_execution_end", triggerRefresh);
 
 	pi.registerCommand("diff-footer-refresh", {
-		description: "Refresh footer diff status against preferred upstream/origin base and uncommitted changes",
+		description: "Refresh the base-aware diff widget shown above the prompt bar",
 		handler: async (_args, ctx) => {
 			await refresh(ctx);
-			ctx.ui.notify("Diff footer refreshed", "info");
+			ctx.ui.notify("Diff widget refreshed", "info");
 		},
 	});
 
 	pi.registerCommand("diff-footer-toggle", {
-		description: "Toggle diff footer display",
+		description: "Toggle the base-aware diff widget above the prompt bar",
 		handler: async (_args, ctx) => {
 			enabled = !enabled;
 			if (!enabled) {
-				ctx.ui.setStatus(STATUS_KEY, undefined);
-				ctx.ui.notify("Diff footer hidden", "info");
+				clearUI(ctx);
+				ctx.ui.notify("Diff widget hidden", "info");
 				return;
 			}
 
 			await refresh(ctx);
-			ctx.ui.notify("Diff footer shown", "info");
+			ctx.ui.notify("Diff widget shown", "info");
 		},
 	});
 }
