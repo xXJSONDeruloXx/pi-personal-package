@@ -1,7 +1,7 @@
 {
   "name": "pi-personal-package",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Dan's personal Pi distro for non-work machines",
   "keywords": [
     "pi-package",
@@ -16,32 +16,59 @@
     "README.md"
   ],
   "dependencies": {
+    "@0xkobold/pi-autoupdate": "^0.1.0",
+    "@aliou/pi-processes": "^0.7.0",
     "@calesennett/pi-codex-usage": "^0.1.11",
+    "@ifi/pi-extension-subagents": "^0.4.4",
+    "@tmustier/pi-ralph-wiggum": "^0.1.6",
     "latchkey": "^2.5.5",
     "pi-codex-web-search": "^0.1.5",
+    "pi-command-center": "^0.1.4",
+    "pi-continuous-learning": "^0.9.0",
+    "pi-hide-messages": "^0.1.1",
     "pi-interactive-shell": "^0.10.1",
     "pi-stash": "^0.2.0",
-    "pi-tool-display": "^0.3.1"
+    "pi-tool-display": "^0.3.1",
+    "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git"
   },
   "bundledDependencies": [
+    "@0xkobold/pi-autoupdate",
+    "@aliou/pi-processes",
     "@calesennett/pi-codex-usage",
+    "@ifi/pi-extension-subagents",
+    "@tmustier/pi-ralph-wiggum",
     "latchkey",
     "pi-codex-web-search",
+    "pi-command-center",
+    "pi-continuous-learning",
+    "pi-hide-messages",
     "pi-interactive-shell",
     "pi-stash",
-    "pi-tool-display"
+    "pi-tool-display",
+    "pi-computer-use"
   ],
   "pi": {
     "extensions": [
       "./extensions",
+      "./node_modules/@0xkobold/pi-autoupdate/index.ts",
+      "./node_modules/@aliou/pi-processes/src/index.ts",
       "./node_modules/@calesennett/pi-codex-usage/extensions/codex-usage-status.ts",
+      "./node_modules/@ifi/pi-extension-subagents/index.ts",
+      "./node_modules/@ifi/pi-extension-subagents/notify.ts",
+      "./node_modules/@tmustier/pi-ralph-wiggum/index.ts",
       "./node_modules/pi-codex-web-search/src/index.ts",
+      "./node_modules/pi-command-center/extensions/command-center/index.ts",
+      "./node_modules/pi-continuous-learning/dist/index.js",
+      "./node_modules/pi-hide-messages/index.ts",
       "./node_modules/pi-interactive-shell/index.ts",
       "./node_modules/pi-stash/src/stash.ts",
-      "./node_modules/pi-tool-display/index.ts"
+      "./node_modules/pi-tool-display/index.ts",
+      "./node_modules/pi-computer-use/src/index.ts"
     ],
     "skills": [
       "./skills",
+      "./node_modules/@aliou/pi-processes/skills/pi-processes",
+      "./node_modules/@tmustier/pi-ralph-wiggum/SKILL.md",
       "./node_modules/latchkey/dist/skills/generic",
       "./node_modules/pi-interactive-shell/SKILL.md",
       "./node_modules/pi-interactive-shell/examples/skills"

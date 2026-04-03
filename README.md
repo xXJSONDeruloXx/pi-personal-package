@@ -50,13 +50,23 @@ pi update
 This package also bundles a curated set of reusable Pi packages so personal machines can be bootstrapped from a single install.
 
 #### Bundled extensions
+- `@0xkobold/pi-autoupdate`
+- `@aliou/pi-processes`
 - `@calesennett/pi-codex-usage`
+- `@ifi/pi-extension-subagents`
+- `@tmustier/pi-ralph-wiggum`
 - `pi-codex-web-search`
+- `pi-command-center`
+- `pi-computer-use`
+- `pi-continuous-learning`
+- `pi-hide-messages`
 - `pi-interactive-shell`
 - `pi-stash`
 - `pi-tool-display`
 
 #### Bundled skills
+- `@aliou/pi-processes`
+- `@tmustier/pi-ralph-wiggum`
 - `latchkey`
 - `pi-interactive-shell`
 
@@ -67,6 +77,7 @@ This package intentionally keeps:
 - GameNative-specific research/debugging skills
 - personal Copilot usage status
 - generic Pi UX improvements learned from work
+- selected autonomy / process / TUI tools from the work machine
 
 It intentionally leaves out:
 - Jira / enterprise workflow glue
@@ -77,6 +88,10 @@ It intentionally leaves out:
 ### Base-aware diff footer
 The diff footer prefers upstream when it exists, then falls back to origin.
 That makes it friendlier for personal repos that track `upstream/master` while still working fine in ordinary origin-only repos.
+
+### Subagent choice
+This package bundles `@ifi/pi-extension-subagents` as the default subagent system.
+It is the richer option and a better long-term personal default than carrying multiple overlapping subagent packages.
 
 ## Extras kept in the repo
 
