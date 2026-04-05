@@ -23,7 +23,11 @@
 - When opening a PR for work that came from a provided Discord bug / feature link, put that Discord URL in the PR description.
   - If there is no provided Discord link, leave the PR description blank unless the user asks for something else.
 - For GameNative PRs and commit messages the agent creates, prefer conventional/semantic prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, or `test:`.
+- For GameNative code changes that affect runtime behavior or UI, prefer building an APK and installing it on the attached device with `adb install -r ...` before reporting completion, unless the user says not to.
 - When syncing GameNative `master` with `upstream/master`, fetch `upstream` first, do not create a merge commit, and keep `master`, `origin/master`, and `upstream/master` 1:1. If needed, hard-reset `master` to `upstream/master` and push with `--force-with-lease` after verifying the worktree is clean.
+  - If a destructive repo operation is blocked by uncommitted changes, stop and present concise numbered options so the user can reply with just a number.
+  - Default options should include: `1)` stash current changes (include untracked when relevant) and proceed, `2)` commit and push the current branch changes first, then return to the requested operation, `3)` inspect/show diff or cancel, plus any other clearly relevant option for the situation.
+  - After the user replies with a number, carry out that option as specified without making them restate the plan, unless a new ambiguity or destructive choice still needs confirmation.
 - Proactively update this global `AGENTS.md` when the user corrects agent behavior or when stable usage patterns emerge from repeated interactions.
 
 ## Computer-use tools
