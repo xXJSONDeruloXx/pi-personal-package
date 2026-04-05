@@ -12,6 +12,7 @@
   "files": [
     "extensions/",
     "extras/",
+    "prompts/",
     "skills/",
     "README.md"
   ],
@@ -51,6 +52,9 @@
     "pi-computer-use"
   ],
   "pi": {
+    "prompts": [
+      "./prompts"
+    ],
     "extensions": [
       "./extensions",
       "./node_modules/@0xkobold/pi-autoupdate/index.ts",
