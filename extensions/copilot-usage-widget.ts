@@ -36,6 +36,8 @@ type UsageState = {
 	stale: boolean;
 };
 
+type Visibility = "auto" | "always" | "hidden";
+
 function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, value));
 }
@@ -63,6 +65,14 @@ function formatReset(value: string): string {
 		day: "numeric",
 		timeZone: "UTC",
 	}).format(date);
+}
+
+function isCopilotProvider(ctx: ExtensionContext): boolean {
+	try {
+		return ctx.model?.provider === "github-copilot";
+	} catch {
+		return false;
+	}
 }
 
 function parseUsage(stdout: string): UsageState {
@@ -132,8 +142,26 @@ async function fetchUsage(pi: ExtensionAPI): Promise<UsageState> {
 	return parseUsage(result.stdout);
 }
 
-function applyUI(ctx: ExtensionContext, usage: UsageState | null, showBar: boolean): void {
+function applyUI(
+	ctx: ExtensionContext,
+	usage: UsageState | null,
+	showBar: boolean,
+	visibility: Visibility,
+	isCopilot: boolean,
+): void {
 	if (!ctx.hasUI) return;
+
+	if (visibility === "hidden") {
+		ctx.ui.setStatus(STATUS_KEY, undefined);
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		return;
+	}
+
+	if (visibility === "auto" && !isCopilot) {
+		ctx.ui.setStatus(STATUS_KEY, undefined);
+		ctx.ui.setWidget(WIDGET_KEY, undefined);
+		return;
+	}
 
 	if (!usage) {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
@@ -186,6 +214,7 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 	let refreshing = false;
 	let refreshQueued = false;
 	let showBar = false;
+	let visibility: Visibility = "auto";
 
 	const ensureTimer = () => {
 		if (refreshTimer) return;
@@ -197,6 +226,13 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 	const refresh = async (ctx?: ExtensionContext, notifyOnError = false) => {
 		if (ctx) latestCtx = ctx;
 		if (!latestCtx?.hasUI) return;
+
+		const providerIsCopilot = isCopilotProvider(latestCtx);
+
+		if (visibility === "auto" && !providerIsCopilot) {
+			applyUI(latestCtx, null, showBar, visibility, false);
+			return;
+		}
 
 		if (refreshing) {
 			refreshQueued = true;
@@ -223,7 +259,7 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 				}
 
 				if (latestCtx) {
-					applyUI(latestCtx, latestUsage, showBar);
+					applyUI(latestCtx, latestUsage, showBar, visibility, providerIsCopilot);
 				}
 			} while (refreshQueued);
 		} finally {
@@ -248,11 +284,24 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 		}
 	});
 
+	pi.registerCommand("copilot-usage", {
+		description: "Cycle Copilot usage widget visibility (auto → always → hidden)",
+		handler: async (_args, ctx) => {
+			const cycle: Visibility[] = ["auto", "always", "hidden"];
+			const idx = cycle.indexOf(visibility);
+			visibility = cycle[(idx + 1) % cycle.length];
+			const providerIsCopilot = isCopilotProvider(ctx);
+			applyUI(ctx, latestUsage, showBar, visibility, providerIsCopilot);
+			ctx.ui.notify(`Copilot usage: ${visibility}`, "info");
+		},
+	});
+
 	pi.registerCommand("copilot-usage-bar", {
 		description: "Toggle Copilot usage progress bar",
 		handler: async (_args, ctx) => {
 			showBar = !showBar;
-			applyUI(ctx, latestUsage, showBar);
+			const providerIsCopilot = isCopilotProvider(ctx);
+			applyUI(ctx, latestUsage, showBar, visibility, providerIsCopilot);
 			ctx.ui.notify(`Copilot usage bar ${showBar ? "shown" : "hidden"}`, "info");
 		},
 	});
