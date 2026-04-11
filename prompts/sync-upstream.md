@@ -7,6 +7,7 @@ Requirements:
 - Treat this as a hard sync, not a merge.
 - Fetch `upstream master` first, then fetch `origin master`.
 - Verify the repo has both `upstream` and `origin` remotes.
+- Leave the repo checked out on `master` at the end unless the user explicitly asks otherwise.
 - If the working tree has uncommitted changes, stop and ask before doing anything destructive.
 
 Steps:
@@ -21,4 +22,5 @@ Steps:
 Important:
 - Do not create a merge commit.
 - Do not leave `master` ahead/behind `upstream/master`.
+- The desired final state is that the repo is checked out on `master`.
 - Be concise and report the final SHA.
