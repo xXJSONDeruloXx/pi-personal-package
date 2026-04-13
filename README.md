@@ -44,6 +44,7 @@ pi update
 - `skills/ci-fix-watch/`
 - `skills/gamenative-cloud-save-debug/`
 - `skills/gamenative-discord-research/`
+- `skills/media-under-size/`
 - `skills/pr-review-watch/`
 - `skills/ralph-wiggum/` (compatibility wrapper for the bundled Ralph skill)
 
