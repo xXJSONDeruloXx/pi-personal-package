@@ -1,8 +1,24 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+	PROVIDER_WIDGET_VISIBILITY_EVENT,
+	getEffectiveProviderWidgetVisibility,
+	loadGlobalProviderWidgetVisibility,
+	normalizeProviderWidgetVisibility,
+	type ProviderWidgetVisibility,
+} from "./lib/provider-widget-visibility";
 
 const STATUS_KEY = "copilot-usage";
 const WIDGET_KEY = "copilot-usage-widget";
+const ENTRY_TYPE = "copilot-usage-settings";
+const SETTINGS_KEY = "pi-copilot-usage";
+const SETTINGS_FILE = path.join(
+	process.env.PI_CODING_AGENT_DIR?.trim() || path.join(os.homedir(), ".pi", "agent"),
+	"settings.json",
+);
 const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
 const GH_TIMEOUT_MS = 5000;
 
@@ -36,7 +52,20 @@ type UsageState = {
 	stale: boolean;
 };
 
-type Visibility = "auto" | "always" | "hidden";
+type Visibility = ProviderWidgetVisibility;
+type WidgetPlacement = "aboveEditor" | "belowEditor";
+
+type PersistedSettings = {
+	visibility: Visibility;
+	showBar: boolean;
+	placement: WidgetPlacement;
+};
+
+const DEFAULT_SETTINGS: PersistedSettings = {
+	visibility: "auto",
+	showBar: false,
+	placement: "belowEditor",
+};
 
 function clamp(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, value));
@@ -75,16 +104,75 @@ function isCopilotProvider(ctx: ExtensionContext): boolean {
 	}
 }
 
+async function readSettings(): Promise<Record<string, unknown>> {
+	try {
+		const raw = await fs.readFile(SETTINGS_FILE, "utf8");
+		const parsed = JSON.parse(raw);
+		return typeof parsed === "object" && parsed && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+	} catch (e: unknown) {
+		if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+		throw e;
+	}
+}
+
+async function writeSettings(settings: Record<string, unknown>): Promise<void> {
+	await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true });
+	await fs.writeFile(SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+function normalizePersistedSettings(value: unknown): PersistedSettings {
+	if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS };
+	const s = value as Partial<PersistedSettings>;
+	return {
+		visibility:
+			s.visibility === "always" || s.visibility === "auto" || s.visibility === "hidden"
+				? s.visibility
+				: DEFAULT_SETTINGS.visibility,
+		showBar: s.showBar ?? DEFAULT_SETTINGS.showBar,
+		placement:
+			s.placement === "aboveEditor" || s.placement === "belowEditor"
+				? s.placement
+				: DEFAULT_SETTINGS.placement,
+	};
+}
+
+async function loadPersistedSettings(): Promise<PersistedSettings> {
+	const settings = await readSettings();
+	return normalizePersistedSettings(settings[SETTINGS_KEY]);
+}
+
+async function persistSettingsToDisk(settings: PersistedSettings): Promise<void> {
+	const all = await readSettings();
+	all[SETTINGS_KEY] = settings;
+	await writeSettings(all);
+}
+
+function parsePlacementArg(args: string, current: WidgetPlacement): WidgetPlacement | null {
+	const token = args.trim().toLowerCase().split(/\s+/)[0] ?? "";
+	if (!token || token === "toggle") return current === "aboveEditor" ? "belowEditor" : "aboveEditor";
+	if (token === "above") return "aboveEditor";
+	if (token === "below") return "belowEditor";
+	return null;
+}
+
+function getPlacementCompletions(prefix: string) {
+	const p = prefix.trim().toLowerCase();
+	const items = [
+		{ value: "above", label: "above", description: "Show widget above the editor" },
+		{ value: "below", label: "below", description: "Show widget below the editor" },
+		{ value: "toggle", label: "toggle", description: "Flip widget placement" },
+	];
+	if (!p) return items;
+	const filtered = items.filter((i) => i.value.startsWith(p));
+	return filtered.length > 0 ? filtered : null;
+}
+
 function parseUsage(stdout: string): UsageState {
 	const parsed = JSON.parse(stdout) as CopilotInternalResponse;
 	const premium = parsed.quota_snapshots?.premium_interactions;
 
-	if (!premium) {
-		throw new Error("Missing premium_interactions quota in /copilot_internal/user response");
-	}
-	if (premium.unlimited) {
-		throw new Error("Premium interactions are unlimited for this account");
-	}
+	if (!premium) throw new Error("Missing premium_interactions quota in /copilot_internal/user response");
+	if (premium.unlimited) throw new Error("Premium interactions are unlimited for this account");
 
 	const entitlement = premium.entitlement;
 	const remaining = premium.quota_remaining;
@@ -135,9 +223,7 @@ async function fetchUsage(pi: ExtensionAPI): Promise<UsageState> {
 		const error = (result.stderr || result.stdout || "gh api failed").trim();
 		throw new Error(error);
 	}
-	if (!result.stdout.trim()) {
-		throw new Error("Empty response from gh api /copilot_internal/user");
-	}
+	if (!result.stdout.trim()) throw new Error("Empty response from gh api /copilot_internal/user");
 
 	return parseUsage(result.stdout);
 }
@@ -145,19 +231,21 @@ async function fetchUsage(pi: ExtensionAPI): Promise<UsageState> {
 function applyUI(
 	ctx: ExtensionContext,
 	usage: UsageState | null,
-	showBar: boolean,
-	visibility: Visibility,
+	settings: PersistedSettings,
+	globalVisibility: Visibility | null,
 	isCopilot: boolean,
 ): void {
 	if (!ctx.hasUI) return;
 
-	if (visibility === "hidden") {
+	const effectiveVisibility = getEffectiveProviderWidgetVisibility(settings.visibility, globalVisibility);
+
+	if (effectiveVisibility === "hidden") {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		return;
 	}
 
-	if (visibility === "auto" && !isCopilot) {
+	if (effectiveVisibility === "auto" && !isCopilot) {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		return;
@@ -189,7 +277,7 @@ function applyUI(
 					overageDetails +
 					widgetTheme.fg("muted", ` · reset ${resetText}`);
 
-				if (!showBar) {
+				if (!settings.showBar) {
 					return [truncateToWidth(prefix + details + staleWidget, width)];
 				}
 
@@ -203,7 +291,7 @@ function applyUI(
 			},
 			invalidate() {},
 		}),
-		{ placement: "belowEditor" },
+		{ placement: settings.placement },
 	);
 }
 
@@ -213,8 +301,23 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 	let refreshTimer: ReturnType<typeof setInterval> | undefined;
 	let refreshing = false;
 	let refreshQueued = false;
-	let showBar = false;
-	let visibility: Visibility = "auto";
+	let settings: PersistedSettings = { ...DEFAULT_SETTINGS };
+	let globalVisibility: Visibility | null = null;
+	let settingsWriteQueue: Promise<void> = Promise.resolve();
+
+	const persistAll = (ctx: ExtensionContext) => {
+		pi.appendEntry(ENTRY_TYPE, { ...settings });
+		settingsWriteQueue = settingsWriteQueue
+			.catch(() => undefined)
+			.then(() => persistSettingsToDisk(settings))
+			.catch((error) => {
+				if (!ctx.hasUI) return;
+				ctx.ui.notify(
+					`Copilot usage: failed to save settings: ${error instanceof Error ? error.message : String(error)}`,
+					"warning",
+				);
+			});
+	};
 
 	const ensureTimer = () => {
 		if (refreshTimer) return;
@@ -228,9 +331,10 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 		if (!latestCtx?.hasUI) return;
 
 		const providerIsCopilot = isCopilotProvider(latestCtx);
+		const effectiveVisibility = getEffectiveProviderWidgetVisibility(settings.visibility, globalVisibility);
 
-		if (visibility === "auto" && !providerIsCopilot) {
-			applyUI(latestCtx, null, showBar, visibility, false);
+		if (effectiveVisibility === "auto" && !providerIsCopilot) {
+			applyUI(latestCtx, null, settings, globalVisibility, false);
 			return;
 		}
 
@@ -259,7 +363,7 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 				}
 
 				if (latestCtx) {
-					applyUI(latestCtx, latestUsage, showBar, visibility, providerIsCopilot);
+					applyUI(latestCtx, latestUsage, settings, globalVisibility, providerIsCopilot);
 				}
 			} while (refreshQueued);
 		} finally {
@@ -267,15 +371,49 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 		}
 	};
 
+	const onSessionStart = async (_event: unknown, ctx: ExtensionContext) => {
+		const entries = ctx.sessionManager.getEntries();
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const entry = entries[i];
+			if (entry.type === "custom" && "customType" in entry && (entry as any).customType === ENTRY_TYPE) {
+				const data = (entry as any).data as PersistedSettings | undefined;
+				if (data) settings = normalizePersistedSettings(data);
+				break;
+			}
+		}
+
+		try {
+			settings = await loadPersistedSettings();
+		} catch {
+			// keep restored/default settings
+		}
+
+		try {
+			globalVisibility = await loadGlobalProviderWidgetVisibility();
+		} catch {
+			globalVisibility = null;
+		}
+
+		ensureTimer();
+		await refresh(ctx);
+	};
+
 	const onUiEvent = async (_event: unknown, ctx: ExtensionContext) => {
 		ensureTimer();
 		await refresh(ctx);
 	};
 
-	pi.on("session_start", onUiEvent);
+	pi.on("session_start", onSessionStart);
 	pi.on("session_switch", onUiEvent);
 	pi.on("turn_end", onUiEvent);
 	pi.on("model_select", onUiEvent);
+
+	pi.events.on(PROVIDER_WIDGET_VISIBILITY_EVENT, (payload: unknown) => {
+		globalVisibility = normalizeProviderWidgetVisibility((payload as { visibility?: unknown } | null)?.visibility);
+		if (latestCtx) {
+			applyUI(latestCtx, latestUsage, settings, globalVisibility, isCopilotProvider(latestCtx));
+		}
+	});
 
 	pi.on("session_shutdown", async () => {
 		if (refreshTimer) {
@@ -288,21 +426,34 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 		description: "Cycle Copilot usage widget visibility (auto → always → hidden)",
 		handler: async (_args, ctx) => {
 			const cycle: Visibility[] = ["auto", "always", "hidden"];
-			const idx = cycle.indexOf(visibility);
-			visibility = cycle[(idx + 1) % cycle.length];
-			const providerIsCopilot = isCopilotProvider(ctx);
-			applyUI(ctx, latestUsage, showBar, visibility, providerIsCopilot);
-			ctx.ui.notify(`Copilot usage: ${visibility}`, "info");
+			const idx = cycle.indexOf(settings.visibility);
+			settings.visibility = cycle[(idx + 1) % cycle.length];
+			persistAll(ctx);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isCopilotProvider(ctx));
+			ctx.ui.notify(`Copilot usage: ${settings.visibility}`, "info");
 		},
 	});
 
 	pi.registerCommand("copilot-usage-bar", {
 		description: "Toggle Copilot usage progress bar",
 		handler: async (_args, ctx) => {
-			showBar = !showBar;
-			const providerIsCopilot = isCopilotProvider(ctx);
-			applyUI(ctx, latestUsage, showBar, visibility, providerIsCopilot);
-			ctx.ui.notify(`Copilot usage bar ${showBar ? "shown" : "hidden"}`, "info");
+			settings.showBar = !settings.showBar;
+			persistAll(ctx);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isCopilotProvider(ctx));
+			ctx.ui.notify(`Copilot usage bar ${settings.showBar ? "shown" : "hidden"}`, "info");
+		},
+	});
+
+	pi.registerCommand("copilot-usage-placement", {
+		description: "Set Copilot widget placement: above | below | toggle",
+		getArgumentCompletions: getPlacementCompletions,
+		handler: async (args, ctx) => {
+			const next = parsePlacementArg(args, settings.placement);
+			if (!next) return;
+			settings.placement = next;
+			persistAll(ctx);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isCopilotProvider(ctx));
+			ctx.ui.notify(`Copilot widget: ${next === "aboveEditor" ? "above editor" : "below editor"}`, "info");
 		},
 	});
 

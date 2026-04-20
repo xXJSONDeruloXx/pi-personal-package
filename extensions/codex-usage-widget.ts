@@ -1,13 +1,7 @@
 /**
  * Codex usage widget for pi-personal-package.
- * Replaces @calesennett/pi-codex-usage with a widget (setWidget) instead of
- * footer status (setStatus), adds visibility cycling (auto → always → hidden),
- * optional progress bar, and full settings persistence.
- *
- * Auth:    reads ~/.pi/agent/auth.json (openai-codex OAuth entry)
- * Fetch:   native fetch() → chatgpt.com/backend-api/wham/usage
- * Windows: 5h (primary) + 7d (secondary)
- * Models:  gpt-5.3-codex-spark gets its own rate-limit bucket
+ * Local widget version with per-widget settings, placement control, and support
+ * for a shared global provider-widget visibility override.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -15,8 +9,13 @@ import { truncateToWidth } from "@mariozechner/pi-tui";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-// ── Constants ──────────────────────────────────────────────────────────────
+import {
+	PROVIDER_WIDGET_VISIBILITY_EVENT,
+	getEffectiveProviderWidgetVisibility,
+	loadGlobalProviderWidgetVisibility,
+	normalizeProviderWidgetVisibility,
+	type ProviderWidgetVisibility,
+} from "./lib/provider-widget-visibility";
 
 const WIDGET_KEY = "codex-usage-widget";
 const ENTRY_TYPE = "codex-usage-settings";
@@ -33,8 +32,6 @@ const AGENT_DIR = agentDirFromEnv || path.join(os.homedir(), ".pi", "agent");
 const AUTH_FILE = path.join(AGENT_DIR, "auth.json");
 const SETTINGS_FILE = path.join(AGENT_DIR, "settings.json");
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
-
-// ── Response types ─────────────────────────────────────────────────────────
 
 type UsageWindow = {
 	used_percent?: number | null;
@@ -54,8 +51,6 @@ type CodexUsageResponse = {
 	additional_rate_limits?: Record<string, unknown> | unknown[] | null;
 };
 
-// ── Parsed state ───────────────────────────────────────────────────────────
-
 type UsageSnapshot = {
 	fiveHourLeftPercent: number | null;
 	sevenDayLeftPercent: number | null;
@@ -65,17 +60,17 @@ type UsageSnapshot = {
 	stale: boolean;
 };
 
-// ── Settings ───────────────────────────────────────────────────────────────
-
-type Visibility = "auto" | "always" | "hidden";
+type Visibility = ProviderWidgetVisibility;
 type DisplayMode = "left" | "used";
 type ResetWindowMode = "5h" | "7d";
+type WidgetPlacement = "aboveEditor" | "belowEditor";
 
 type PersistedSettings = {
 	visibility: Visibility;
 	showBar: boolean;
 	displayMode: DisplayMode;
 	resetWindow: ResetWindowMode;
+	placement: WidgetPlacement;
 };
 
 const DEFAULT_SETTINGS: PersistedSettings = {
@@ -83,9 +78,8 @@ const DEFAULT_SETTINGS: PersistedSettings = {
 	showBar: true,
 	displayMode: "left",
 	resetWindow: "7d",
+	placement: "aboveEditor",
 };
-
-// ── Helpers ────────────────────────────────────────────────────────────────
 
 function clamp(v: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, v));
@@ -158,8 +152,6 @@ function colorizePercent(
 	return theme.fg(color, text);
 }
 
-// ── Settings persistence ───────────────────────────────────────────────────
-
 async function readAgentSettings(): Promise<Record<string, unknown>> {
 	try {
 		const raw = await fs.readFile(SETTINGS_FILE, "utf8");
@@ -196,6 +188,10 @@ function normalizeSettings(value: unknown): PersistedSettings {
 			s.resetWindow === "5h" || s.resetWindow === "7d"
 				? s.resetWindow
 				: DEFAULT_SETTINGS.resetWindow,
+		placement:
+			s.placement === "aboveEditor" || s.placement === "belowEditor"
+				? s.placement
+				: DEFAULT_SETTINGS.placement,
 	};
 }
 
@@ -209,8 +205,6 @@ async function persistSettingsToDisk(settings: PersistedSettings): Promise<void>
 	all[SETTINGS_KEY] = settings;
 	await writeAgentSettings(all);
 }
-
-// ── Auth & fetch ───────────────────────────────────────────────────────────
 
 async function loadAuth(): Promise<{ accessToken: string; accountId: string }> {
 	const raw = await fs.readFile(AUTH_FILE, "utf8");
@@ -309,17 +303,17 @@ async function fetchUsage(modelId: string | undefined): Promise<UsageSnapshot> {
 	}
 }
 
-// ── UI rendering ───────────────────────────────────────────────────────────
-
 function applyUI(
 	ctx: ExtensionContext,
 	snapshot: UsageSnapshot | null,
 	settings: PersistedSettings,
+	globalVisibility: Visibility | null,
 	isCodex: boolean,
 ): void {
 	if (!ctx.hasUI) return;
 
-	const { visibility, showBar, displayMode, resetWindow } = settings;
+	const { showBar, displayMode, resetWindow } = settings;
+	const visibility = getEffectiveProviderWidgetVisibility(settings.visibility, globalVisibility);
 
 	if (visibility === "hidden" || (visibility === "auto" && !isCodex) || !snapshot) {
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
@@ -333,13 +327,10 @@ function applyUI(
 			const limitTag = snapshot.isLimited ? widgetTheme.fg("error", " [limited]") : "";
 			const prefix = widgetTheme.fg("accent", `${getLabel(modelId)} `) + limitTag;
 
-			const fiveHourResetSecs =
-				resetWindow === "5h" ? snapshot.fiveHourResetInSeconds : snapshot.sevenDayResetInSeconds;
-			const resetText = formatCountdown(fiveHourResetSecs);
+			const resetSecs = resetWindow === "5h" ? snapshot.fiveHourResetInSeconds : snapshot.sevenDayResetInSeconds;
+			const resetText = formatCountdown(resetSecs);
 			const resetLabel = resetWindow === "5h" ? "5h" : "7d";
-			const resetSuffix = resetText
-				? widgetTheme.fg("dim", ` (${resetLabel}:↺${resetText})`)
-				: "";
+			const resetSuffix = resetText ? widgetTheme.fg("dim", ` (${resetLabel}:↺${resetText})`) : "";
 
 			const windows: Array<{ label: string; leftPct: number | null }> = [
 				{ label: "5h", leftPct: snapshot.fiveHourLeftPercent },
@@ -347,38 +338,46 @@ function applyUI(
 			];
 
 			const parts: string[] = [];
-
 			for (const win of windows) {
 				const pctText = colorizePercent(widgetTheme, win.leftPct, displayMode);
-
 				if (showBar && win.leftPct !== null) {
 					const usedPct = clampPercent(100 - win.leftPct);
 					const barRatio = clamp(usedPct / 100, 0, 1);
 					const barWidth = clamp(Math.floor((width - 55) / windows.length), 5, 12);
 					const { filled, empty } = bar(barRatio, barWidth);
-					const barColor =
-						displayMode === "left" ? colorForLeft(win.leftPct) : colorForUsed(usedPct);
-					const barText =
-						widgetTheme.fg(barColor, filled) + widgetTheme.fg("dim", empty);
+					const barColor = displayMode === "left" ? colorForLeft(win.leftPct) : colorForUsed(usedPct);
+					const barText = widgetTheme.fg(barColor, filled) + widgetTheme.fg("dim", empty);
 					parts.push(widgetTheme.fg("muted", `${win.label} `) + barText + " " + pctText);
 				} else {
 					parts.push(widgetTheme.fg("muted", `${win.label} `) + pctText);
 				}
 			}
 
-			const line =
-				prefix + " " +
-				parts.join(widgetTheme.fg("dim", " │ ")) +
-				resetSuffix +
-				staleSuffix;
-
+			const line = prefix + " " + parts.join(widgetTheme.fg("dim", " │ ")) + resetSuffix + staleSuffix;
 			return [truncateToWidth(line, width)];
 		},
 		invalidate() {},
-	}));
+	}), { placement: settings.placement });
 }
 
-// ── Extension ──────────────────────────────────────────────────────────────
+function parsePlacementArg(args: string, current: WidgetPlacement): WidgetPlacement | null {
+	const token = args.trim().toLowerCase().split(/\s+/)[0] ?? "";
+	if (!token || token === "toggle") return current === "aboveEditor" ? "belowEditor" : "aboveEditor";
+	if (token === "above") return "aboveEditor";
+	if (token === "below") return "belowEditor";
+	return null;
+}
+
+function getPlacementCompletions(prefix: string) {
+	const p = prefix.trim().toLowerCase();
+	const items = [
+		{ value: "above", label: "above", description: "Show widget above the editor" },
+		{ value: "below", label: "below", description: "Show widget below the editor" },
+		{ value: "toggle", label: "toggle", description: "Flip widget placement" },
+	];
+	const filtered = p ? items.filter((i) => i.value.startsWith(p)) : items;
+	return filtered.length > 0 ? filtered : null;
+}
 
 export default function codexUsageWidget(pi: ExtensionAPI) {
 	let latestCtx: ExtensionContext | undefined;
@@ -387,6 +386,7 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 	let refreshing = false;
 	let refreshQueued = false;
 	let settings: PersistedSettings = { ...DEFAULT_SETTINGS };
+	let globalVisibility: Visibility | null = null;
 	let settingsWriteQueue: Promise<void> = Promise.resolve();
 
 	const isCodexCtx = (ctx: ExtensionContext) => isCodexModel(ctx.model?.id);
@@ -415,10 +415,11 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 		if (ctx) latestCtx = ctx;
 		if (!latestCtx?.hasUI) return;
 
-		const codex = isCodexModel(latestCtx);
+		const codex = isCodexCtx(latestCtx);
+		const effectiveVisibility = getEffectiveProviderWidgetVisibility(settings.visibility, globalVisibility);
 
-		if (settings.visibility === "auto" && !codex) {
-			applyUI(latestCtx, null, settings, false);
+		if (effectiveVisibility === "auto" && !codex) {
+			applyUI(latestCtx, null, settings, globalVisibility, false);
 			return;
 		}
 
@@ -435,9 +436,8 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 					latestSnapshot = await fetchUsage(latestCtx.model?.id);
 				} catch (err) {
 					if (isMissingAuthError(err)) {
-						// No auth — clear widget silently
 						latestSnapshot = null;
-						if (latestCtx) applyUI(latestCtx, null, settings, codex);
+						if (latestCtx) applyUI(latestCtx, null, settings, globalVisibility, codex);
 						return;
 					}
 					if (latestSnapshot) {
@@ -450,7 +450,7 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 						latestCtx.ui.notify(`Codex usage refresh failed: ${msg}`, "warning");
 					}
 				}
-				if (latestCtx) applyUI(latestCtx, latestSnapshot, settings, codex);
+				if (latestCtx) applyUI(latestCtx, latestSnapshot, settings, globalVisibility, codex);
 			} while (refreshQueued);
 		} finally {
 			refreshing = false;
@@ -458,7 +458,6 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
-		// Restore from session entries first (covers /reload within session)
 		const entries = ctx.sessionManager.getEntries();
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i];
@@ -468,11 +467,15 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 				break;
 			}
 		}
-		// Then load from settings.json (authoritative across sessions)
 		try {
 			settings = await loadPersistedSettings();
 		} catch {
 			// keep whatever we got above
+		}
+		try {
+			globalVisibility = await loadGlobalProviderWidgetVisibility();
+		} catch {
+			globalVisibility = null;
 		}
 		ensureTimer();
 		await refresh(ctx);
@@ -481,14 +484,19 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 	pi.on("model_select", async (_event, ctx) => { await refresh(ctx); });
 	pi.on("turn_end", async (_event, ctx) => { await refresh(ctx); });
 
+	pi.events.on(PROVIDER_WIDGET_VISIBILITY_EVENT, (payload: unknown) => {
+		globalVisibility = normalizeProviderWidgetVisibility((payload as { visibility?: unknown } | null)?.visibility);
+		if (latestCtx) {
+			applyUI(latestCtx, latestSnapshot, settings, globalVisibility, isCodexCtx(latestCtx));
+		}
+	});
+
 	pi.on("session_shutdown", () => {
 		if (refreshTimer) {
 			clearInterval(refreshTimer);
 			refreshTimer = undefined;
 		}
 	});
-
-	// ── Commands ─────────────────────────────────────────────────────────
 
 	pi.registerCommand("codex-usage", {
 		description: "Cycle Codex usage widget visibility (auto → always → hidden)",
@@ -497,7 +505,7 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 			const idx = cycle.indexOf(settings.visibility);
 			settings.visibility = cycle[(idx + 1) % cycle.length];
 			persistAll(ctx);
-			applyUI(ctx, latestSnapshot, settings, isCodexCtx(ctx));
+			applyUI(ctx, latestSnapshot, settings, globalVisibility, isCodexCtx(ctx));
 			ctx.ui.notify(`Codex usage: ${settings.visibility}`, "info");
 		},
 	});
@@ -507,7 +515,7 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			settings.showBar = !settings.showBar;
 			persistAll(ctx);
-			applyUI(ctx, latestSnapshot, settings, isCodexCtx(ctx));
+			applyUI(ctx, latestSnapshot, settings, globalVisibility, isCodexCtx(ctx));
 			ctx.ui.notify(`Codex usage bar ${settings.showBar ? "shown" : "hidden"}`, "info");
 		},
 	});
@@ -526,15 +534,12 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 		},
 		handler: async (args, ctx) => {
 			const token = args.trim().toLowerCase().split(/\s+/)[0] ?? "";
-			let next: DisplayMode;
-			if (token === "left" || token === "used") {
-				next = token;
-			} else {
-				next = settings.displayMode === "left" ? "used" : "left";
-			}
+			const next: DisplayMode = token === "left" || token === "used"
+				? token
+				: settings.displayMode === "left" ? "used" : "left";
 			settings.displayMode = next;
 			persistAll(ctx);
-			applyUI(ctx, latestSnapshot, settings, isCodexCtx(ctx));
+			applyUI(ctx, latestSnapshot, settings, globalVisibility, isCodexCtx(ctx));
 			ctx.ui.notify(`Codex usage display: ${next === "left" ? "% left" : "% used"}`, "info");
 		},
 	});
@@ -553,16 +558,26 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 		},
 		handler: async (args, ctx) => {
 			const token = args.trim().toLowerCase().split(/\s+/)[0] ?? "";
-			let next: ResetWindowMode;
-			if (token === "5h" || token === "7d") {
-				next = token;
-			} else {
-				next = settings.resetWindow === "7d" ? "5h" : "7d";
-			}
+			const next: ResetWindowMode = token === "5h" || token === "7d"
+				? token
+				: settings.resetWindow === "7d" ? "5h" : "7d";
 			settings.resetWindow = next;
 			persistAll(ctx);
-			applyUI(ctx, latestSnapshot, settings, isCodexCtx(ctx));
+			applyUI(ctx, latestSnapshot, settings, globalVisibility, isCodexCtx(ctx));
 			ctx.ui.notify(`Codex usage reset window: ${next}`, "info");
+		},
+	});
+
+	pi.registerCommand("codex-usage-placement", {
+		description: "Set Codex widget placement: above | below | toggle",
+		getArgumentCompletions: getPlacementCompletions,
+		handler: async (args, ctx) => {
+			const next = parsePlacementArg(args, settings.placement);
+			if (!next) return;
+			settings.placement = next;
+			persistAll(ctx);
+			applyUI(ctx, latestSnapshot, settings, globalVisibility, isCodexCtx(ctx));
+			ctx.ui.notify(`Codex widget: ${next === "aboveEditor" ? "above editor" : "below editor"}`, "info");
 		},
 	});
 
@@ -572,12 +587,8 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 			ensureTimer();
 			await refresh(ctx, true);
 			if (latestSnapshot && !latestSnapshot.stale) {
-				const fiveH = latestSnapshot.fiveHourLeftPercent !== null
-					? `5h: ${Math.round(latestSnapshot.fiveHourLeftPercent)}% left`
-					: "5h: --";
-				const sevenD = latestSnapshot.sevenDayLeftPercent !== null
-					? `7d: ${Math.round(latestSnapshot.sevenDayLeftPercent)}% left`
-					: "7d: --";
+				const fiveH = latestSnapshot.fiveHourLeftPercent !== null ? `5h: ${Math.round(latestSnapshot.fiveHourLeftPercent)}% left` : "5h: --";
+				const sevenD = latestSnapshot.sevenDayLeftPercent !== null ? `7d: ${Math.round(latestSnapshot.sevenDayLeftPercent)}% left` : "7d: --";
 				ctx.ui.notify(`Codex usage refreshed — ${fiveH}, ${sevenD}`, "info");
 			}
 		},

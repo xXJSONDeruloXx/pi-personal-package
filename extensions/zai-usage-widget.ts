@@ -3,6 +3,13 @@ import { truncateToWidth } from "@mariozechner/pi-tui";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import {
+	PROVIDER_WIDGET_VISIBILITY_EVENT,
+	getEffectiveProviderWidgetVisibility,
+	loadGlobalProviderWidgetVisibility,
+	normalizeProviderWidgetVisibility,
+	type ProviderWidgetVisibility,
+} from "./lib/provider-widget-visibility";
 
 const STATUS_KEY = "zai-usage";
 const WIDGET_KEY = "zai-usage-widget";
@@ -66,14 +73,16 @@ type UsageState = {
 
 // ── Persisted settings ─────────────────────────────────────────────────────
 
-type Visibility = "auto" | "always" | "hidden";
+type Visibility = ProviderWidgetVisibility;
 type DisplayMode = "left" | "used";
+type WidgetPlacement = "aboveEditor" | "belowEditor";
 
 type PersistedSettings = {
 	visibility: Visibility;
 	showBar: boolean;
 	showCountdown: boolean;
 	displayMode: DisplayMode;
+	placement: WidgetPlacement;
 };
 
 const DEFAULT_SETTINGS: PersistedSettings = {
@@ -81,6 +90,7 @@ const DEFAULT_SETTINGS: PersistedSettings = {
 	showBar: true,
 	showCountdown: true,
 	displayMode: "left",
+	placement: "aboveEditor",
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -186,6 +196,9 @@ function normalizePersistedSettings(value: unknown): PersistedSettings {
 		displayMode: s.displayMode === "left" || s.displayMode === "used"
 			? s.displayMode
 			: DEFAULT_SETTINGS.displayMode,
+		placement: s.placement === "aboveEditor" || s.placement === "belowEditor"
+			? s.placement
+			: DEFAULT_SETTINGS.placement,
 	};
 }
 
@@ -251,16 +264,19 @@ function applyUI(
 	ctx: ExtensionContext,
 	usage: UsageState | null,
 	settings: PersistedSettings,
+	globalVisibility: Visibility | null,
 	isZaiProvider: boolean,
 ): void {
 	if (!ctx.hasUI) return;
 
-	if (settings.visibility === "hidden") {
+	const effectiveVisibility = getEffectiveProviderWidgetVisibility(settings.visibility, globalVisibility);
+
+	if (effectiveVisibility === "hidden") {
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		return;
 	}
-	if (settings.visibility === "auto" && !isZaiProvider) {
+	if (effectiveVisibility === "auto" && !isZaiProvider) {
 		ctx.ui.setWidget(WIDGET_KEY, undefined);
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		return;
@@ -321,7 +337,7 @@ function applyUI(
 			return [truncateToWidth(line, width)];
 		},
 		invalidate() {},
-	}));
+	}), { placement: settings.placement });
 }
 
 // ── Command argument helpers ───────────────────────────────────────────────
@@ -345,6 +361,26 @@ function getModeCompletions(prefix: string) {
 	return filtered.length > 0 ? filtered : null;
 }
 
+function parsePlacementArg(args: string, current: WidgetPlacement): WidgetPlacement | null {
+	const token = args.trim().toLowerCase().split(/\s+/)[0] ?? "";
+	if (!token || token === "toggle") return current === "aboveEditor" ? "belowEditor" : "aboveEditor";
+	if (token === "above") return "aboveEditor";
+	if (token === "below") return "belowEditor";
+	return null;
+}
+
+function getPlacementCompletions(prefix: string) {
+	const p = prefix.trim().toLowerCase();
+	const items = [
+		{ value: "above", label: "above", description: "Show widget above the editor" },
+		{ value: "below", label: "below", description: "Show widget below the editor" },
+		{ value: "toggle", label: "toggle", description: "Flip widget placement" },
+	];
+	if (!p) return items;
+	const filtered = items.filter((i) => i.value.startsWith(p));
+	return filtered.length > 0 ? filtered : null;
+}
+
 // ── Extension ──────────────────────────────────────────────────────────────
 
 export default function zaiUsageWidget(pi: ExtensionAPI) {
@@ -354,6 +390,7 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 	let refreshing = false;
 	let refreshQueued = false;
 	let settings: PersistedSettings = { ...DEFAULT_SETTINGS };
+	let globalVisibility: Visibility | null = null;
 	let apiKey: string | undefined;
 	let settingsWriteQueue: Promise<void> = Promise.resolve();
 
@@ -391,9 +428,10 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 		if (!latestCtx?.hasUI) return;
 
 		const providerIsZai = isZaiProvider(latestCtx);
+		const effectiveVisibility = getEffectiveProviderWidgetVisibility(settings.visibility, globalVisibility);
 
-		if (settings.visibility === "auto" && !providerIsZai) {
-			applyUI(latestCtx, null, settings, false);
+		if (effectiveVisibility === "auto" && !providerIsZai) {
+			applyUI(latestCtx, null, settings, globalVisibility, false);
 			return;
 		}
 
@@ -428,7 +466,7 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 					}
 				}
 				if (latestCtx) {
-					applyUI(latestCtx, latestUsage, settings, providerIsZai);
+					applyUI(latestCtx, latestUsage, settings, globalVisibility, providerIsZai);
 				}
 			} while (refreshQueued);
 		} finally {
@@ -437,7 +475,6 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 	};
 
 	const onSessionStart = async (_event: unknown, ctx: ExtensionContext) => {
-		// Restore from session entries first (covers /reload)
 		const entries = ctx.sessionManager.getEntries();
 		for (let i = entries.length - 1; i >= 0; i--) {
 			const entry = entries[i];
@@ -452,11 +489,16 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 			}
 		}
 
-		// Then try settings.json (authoritative across sessions)
 		try {
 			settings = await loadPersistedSettings();
 		} catch {
 			// Keep whatever we got from session entries or defaults
+		}
+
+		try {
+			globalVisibility = await loadGlobalProviderWidgetVisibility();
+		} catch {
+			globalVisibility = null;
 		}
 
 		ensureTimer();
@@ -467,14 +509,19 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 	pi.on("model_select", async (_event, ctx) => { await refresh(ctx); });
 	pi.on("turn_end", async (_event, ctx) => { await refresh(ctx); });
 
+	pi.events.on(PROVIDER_WIDGET_VISIBILITY_EVENT, (payload: unknown) => {
+		globalVisibility = normalizeProviderWidgetVisibility((payload as { visibility?: unknown } | null)?.visibility);
+		if (latestCtx) {
+			applyUI(latestCtx, latestUsage, settings, globalVisibility, isZaiProvider(latestCtx));
+		}
+	});
+
 	pi.on("session_shutdown", () => {
 		if (refreshTimer) {
 			clearInterval(refreshTimer);
 			refreshTimer = undefined;
 		}
 	});
-
-	// ── Commands ────────────────────────────────────────────────────────
 
 	pi.registerCommand("zai-usage", {
 		description: "Cycle Z.ai usage widget visibility (auto → always → hidden)",
@@ -483,8 +530,7 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 			const idx = cycle.indexOf(settings.visibility);
 			settings.visibility = cycle[(idx + 1) % cycle.length];
 			persistAll(ctx);
-			const providerIsZai = isZaiProvider(ctx);
-			applyUI(ctx, latestUsage, settings, providerIsZai);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isZaiProvider(ctx));
 			ctx.ui.notify(`Z.ai usage: ${settings.visibility}`, "info");
 		},
 	});
@@ -494,8 +540,7 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			settings.showBar = !settings.showBar;
 			persistAll(ctx);
-			const providerIsZai = isZaiProvider(ctx);
-			applyUI(ctx, latestUsage, settings, providerIsZai);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isZaiProvider(ctx));
 			ctx.ui.notify(`Z.ai usage bar ${settings.showBar ? "shown" : "hidden"}`, "info");
 		},
 	});
@@ -505,8 +550,7 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			settings.showCountdown = !settings.showCountdown;
 			persistAll(ctx);
-			const providerIsZai = isZaiProvider(ctx);
-			applyUI(ctx, latestUsage, settings, providerIsZai);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isZaiProvider(ctx));
 			ctx.ui.notify(`Z.ai countdown ${settings.showCountdown ? "shown" : "hidden"}`, "info");
 		},
 	});
@@ -519,9 +563,21 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 			if (!nextMode) return;
 			settings.displayMode = nextMode;
 			persistAll(ctx);
-			const providerIsZai = isZaiProvider(ctx);
-			applyUI(ctx, latestUsage, settings, providerIsZai);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isZaiProvider(ctx));
 			ctx.ui.notify(`Z.ai display: ${nextMode === "left" ? "% left" : "% used"}`, "info");
+		},
+	});
+
+	pi.registerCommand("zai-usage-placement", {
+		description: "Set Z.ai widget placement: above | below | toggle",
+		getArgumentCompletions: getPlacementCompletions,
+		handler: async (args, ctx) => {
+			const next = parsePlacementArg(args, settings.placement);
+			if (!next) return;
+			settings.placement = next;
+			persistAll(ctx);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isZaiProvider(ctx));
+			ctx.ui.notify(`Z.ai widget: ${next === "aboveEditor" ? "above editor" : "below editor"}`, "info");
 		},
 	});
 
