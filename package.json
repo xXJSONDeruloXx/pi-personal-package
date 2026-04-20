@@ -19,7 +19,6 @@
   "dependencies": {
     "@0xkobold/pi-autoupdate": "^0.1.0",
     "@aliou/pi-processes": "^0.7.0",
-    "@calesennett/pi-codex-usage": "^0.1.11",
     "@ifi/pi-extension-subagents": "^0.4.4",
     "@tmustier/pi-files-widget": "^0.1.15",
     "@tmustier/pi-ralph-wiggum": "^0.1.6",
@@ -37,7 +36,6 @@
   "bundledDependencies": [
     "@0xkobold/pi-autoupdate",
     "@aliou/pi-processes",
-    "@calesennett/pi-codex-usage",
     "@ifi/pi-extension-subagents",
     "@tmustier/pi-files-widget",
     "@tmustier/pi-ralph-wiggum",
@@ -59,7 +57,7 @@
       "./extensions",
       "./node_modules/@0xkobold/pi-autoupdate/index.ts",
       "./node_modules/@aliou/pi-processes/src/index.ts",
-      "./node_modules/@calesennett/pi-codex-usage/extensions/codex-usage-status.ts",
+      "./extensions/codex-usage-widget.ts",
       "./node_modules/@ifi/pi-extension-subagents/index.ts",
       "./node_modules/@ifi/pi-extension-subagents/notify.ts",
       "./node_modules/@tmustier/pi-files-widget/index.ts",
