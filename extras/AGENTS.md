@@ -20,11 +20,21 @@
   - For targeted historical searches across channels, use guild-wide message search in addition to forum pagination.
   - When reporting findings, clearly separate direct evidence from hypotheses; if the user asks for notes, journal them in Markdown at repo root.
   - Do not assume supporter-only channels are readable from the current account; e.g. `priority-feature-requests` may return `Missing Access`.
-- When opening a PR for work that came from a provided Discord bug / feature link, put that Discord URL in the PR description.
-  - If there is no provided Discord link, leave the PR description blank unless the user asks for something else.
+- When opening a PR for GameNative, always use the repo's PR template (`.github/pull_request_template.md`) and open as a **draft**. Fill in:
+  - **Description**: `WIP` (unless the user explicitly provides a description to use).
+  - **Recording**: leave the placeholder comment.
+  - **Checklist**: include the checklist items unchecked as provided in the template.
+  - By default, open the PR against the user's `origin` fork (`xXJSONDeruloXx/GameNative`), not `utkarshdalal/GameNative`, unless the user explicitly asks to target upstream.
+  - Push the branch to `origin` first.
+  - After opening the draft PR, always open the PR URL in the browser with `open <pr_url>`.
 - For GameNative PRs and commit messages the agent creates, prefer conventional/semantic prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, or `test:`.
-- For GameNative code changes that affect runtime behavior or UI, prefer building an APK and installing it on the attached device with `adb install -r ...` before reporting completion, unless the user says not to.
+- When the user asks to discuss or implement asks from specific human reviewers in GameNative Discord threads or PR comments, prioritize those human asks and ignore bot review comments unless the user explicitly asks about the bots.
+- For GameNative code changes that affect runtime behavior or UI, prefer building and installing a debug APK before reporting completion, unless the user says not to.
+  - Use `./gradlew assembleDebug` then `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
+  - Do **not** use `assembleRelease` — the release build has pre-existing lint errors that fail the build. Debug builds succeed reliably.
 - When syncing GameNative `master` with `upstream/master`, fetch `upstream` first, do not create a merge commit, and keep `master`, `origin/master`, and `upstream/master` 1:1. If needed, hard-reset `master` to `upstream/master` and push with `--force-with-lease` after verifying the worktree is clean.
+  - Treat this as a `master`-only maintenance operation: never repoint, reset, or otherwise mutate the currently active non-`master` branch ref while doing the sync.
+  - If starting from another branch, preserve that branch exactly, switch to `master` for the sync steps, and leave the repo checked out on `master` at the end unless the user explicitly asks for a different final branch.
   - If a destructive repo operation is blocked by uncommitted changes, stop and present concise numbered options so the user can reply with just a number.
   - Default options should include: `1)` stash current changes (include untracked when relevant) and proceed, `2)` commit and push the current branch changes first, then return to the requested operation, `3)` inspect/show diff or cancel, plus any other clearly relevant option for the situation.
   - After the user replies with a number, carry out that option as specified without making them restate the plan, unless a new ambiguity or destructive choice still needs confirmation.
