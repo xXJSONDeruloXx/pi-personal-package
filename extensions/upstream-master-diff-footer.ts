@@ -116,7 +116,7 @@ function applyUI(ctx: ExtensionContext, stats: DiffWidgetStats | null): void {
 			return [truncateToWidth(renderWidgetLine(theme, stats), width)];
 		},
 		invalidate() {},
-	}));
+	}), { placement: "belowEditor" });
 }
 
 export default function (pi: ExtensionAPI) {

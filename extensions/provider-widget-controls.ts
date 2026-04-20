@@ -21,6 +21,7 @@ const DEFAULT_WIDGET_ORDER = [
 	"codex-usage-widget",
 	"copilot-usage-widget",
 	"zai-usage-widget",
+	"base-diff-widget",
 ];
 
 // ── Widget order: patch InteractiveMode.prototype.renderWidgetContainer ────

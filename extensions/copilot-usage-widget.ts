@@ -64,7 +64,7 @@ type PersistedSettings = {
 const DEFAULT_SETTINGS: PersistedSettings = {
 	visibility: "auto",
 	showBar: false,
-	placement: "belowEditor",
+	placement: "aboveEditor",
 };
 
 function clamp(value: number, min: number, max: number): number {
