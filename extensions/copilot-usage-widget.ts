@@ -272,13 +272,9 @@ function applyUI(
 				const prefix = widgetTheme.fg("accent", "Copilot ");
 				const baseDetails = `${Math.round(usage.percentUsed)}% ${usage.used}/${usage.entitlement}`;
 				const computedOverage = Math.max(0, usage.used - usage.entitlement);
-				const overageDetails = (() => {
-					if (computedOverage <= 0) return "";
-					const cost = (computedOverage * settings.overageRate).toFixed(2);
-					const costStr = widgetTheme.fg(color, `~$${cost}`);
-					const allowedStr = widgetTheme.fg(usage.overagePermitted ? "warning" : "error", usage.overagePermitted ? "allowed" : "blocked");
-					return ` · ${widgetTheme.fg(color, `+${Math.round(computedOverage)} overage`)} ${allowedStr} ${costStr}`;
-				})();
+				const overageDetails = computedOverage > 0
+					? ` · ${widgetTheme.fg(color, `~$${(computedOverage * settings.overageRate).toFixed(2)}`)}`
+					: "";
 				const details =
 					widgetTheme.fg("muted", `${baseDetails}`) +
 					overageDetails +
