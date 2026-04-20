@@ -59,12 +59,14 @@ type PersistedSettings = {
 	visibility: Visibility;
 	showBar: boolean;
 	placement: WidgetPlacement;
+	overageRate: number;
 };
 
 const DEFAULT_SETTINGS: PersistedSettings = {
 	visibility: "auto",
 	showBar: false,
 	placement: "aboveEditor",
+	overageRate: 0.04,
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -133,6 +135,7 @@ function normalizePersistedSettings(value: unknown): PersistedSettings {
 			s.placement === "aboveEditor" || s.placement === "belowEditor"
 				? s.placement
 				: DEFAULT_SETTINGS.placement,
+		overageRate: typeof s.overageRate === "number" && s.overageRate >= 0 ? s.overageRate : DEFAULT_SETTINGS.overageRate,
 	};
 }
 
@@ -268,10 +271,13 @@ function applyUI(
 				const resetText = formatReset(usage.resetAt);
 				const prefix = widgetTheme.fg("accent", "Copilot ");
 				const baseDetails = `${Math.round(usage.percentUsed)}% ${usage.used}/${usage.entitlement}`;
-				const overageDetails =
-					usage.overageCount > 0
-						? ` · ${widgetTheme.fg(color, `+${usage.overageCount} overage`)} ${widgetTheme.fg(usage.overagePermitted ? "warning" : "error", usage.overagePermitted ? "allowed" : "blocked")}`
-						: "";
+				const overageDetails = (() => {
+					if (usage.overageCount <= 0) return "";
+					const cost = (usage.overageCount * settings.overageRate).toFixed(2);
+					const costStr = widgetTheme.fg(color, `~$${cost}`);
+					const allowedStr = widgetTheme.fg(usage.overagePermitted ? "warning" : "error", usage.overagePermitted ? "allowed" : "blocked");
+					return ` · ${widgetTheme.fg(color, `+${usage.overageCount} overage`)} ${allowedStr} ${costStr}`;
+				})();
 				const details =
 					widgetTheme.fg("muted", `${baseDetails}`) +
 					overageDetails +
@@ -455,6 +461,26 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 			persistAll(ctx);
 			applyUI(ctx, latestUsage, settings, globalVisibility, isCopilotProvider(ctx));
 			ctx.ui.notify(`Copilot widget: ${next === "aboveEditor" ? "above editor" : "below editor"}`, "info");
+		},
+	});
+
+	pi.registerCommand("copilot-overage-rate", {
+		description: "Set cost per overage unit (default $0.04). E.g. /copilot-overage-rate 0.04",
+		handler: async (args, ctx) => {
+			const token = args.trim();
+			if (!token) {
+				ctx.ui.notify(`Copilot overage rate: $${settings.overageRate.toFixed(4)}/unit`, "info");
+				return;
+			}
+			const parsed = parseFloat(token);
+			if (Number.isNaN(parsed) || parsed < 0) {
+				ctx.ui.notify("Invalid rate — provide a non-negative number e.g. 0.04", "warning");
+				return;
+			}
+			settings.overageRate = parsed;
+			persistAll(ctx);
+			applyUI(ctx, latestUsage, settings, globalVisibility, isCopilotProvider(ctx));
+			ctx.ui.notify(`Copilot overage rate set to $${parsed.toFixed(4)}/unit`, "info");
 		},
 	});
 
