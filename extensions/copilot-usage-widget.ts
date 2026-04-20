@@ -412,6 +412,7 @@ export default function copilotUsageWidget(pi: ExtensionAPI) {
 		globalVisibility = normalizeProviderWidgetVisibility((payload as { visibility?: unknown } | null)?.visibility);
 		if (latestCtx) {
 			applyUI(latestCtx, latestUsage, settings, globalVisibility, isCopilotProvider(latestCtx));
+			void refresh();
 		}
 	});
 

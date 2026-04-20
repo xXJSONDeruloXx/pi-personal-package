@@ -488,6 +488,7 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 		globalVisibility = normalizeProviderWidgetVisibility((payload as { visibility?: unknown } | null)?.visibility);
 		if (latestCtx) {
 			applyUI(latestCtx, latestSnapshot, settings, globalVisibility, isCodexCtx(latestCtx));
+			void refresh();
 		}
 	});
 

@@ -513,6 +513,7 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 		globalVisibility = normalizeProviderWidgetVisibility((payload as { visibility?: unknown } | null)?.visibility);
 		if (latestCtx) {
 			applyUI(latestCtx, latestUsage, settings, globalVisibility, isZaiProvider(latestCtx));
+			void refresh();
 		}
 	});
 
