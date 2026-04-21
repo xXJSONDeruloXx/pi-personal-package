@@ -54,6 +54,7 @@ const EMPTY_COMPONENT: Component = {
 };
 
 const BUTTONS: { action: TouchAction; label: string }[] = [
+	{ action: "esc", label: " ESC " },
 	{ action: "top", label: " TOP " },
 	{ action: "pageUp", label: " PG↑ " },
 	{ action: "model", label: "MODEL" },
@@ -518,6 +519,8 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 				state.lastAction = bounds.action;
 				queueLog(`action ${bounds.action}`);
 				switch (bounds.action) {
+					case "esc":
+						return { data: "\x1b" };
 					case "top":
 						state.viewport?.toTop();
 						return { consume: true };
