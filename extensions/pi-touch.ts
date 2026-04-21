@@ -418,6 +418,34 @@ function destroyPanel(): void {
 	queueLog("bar destroyed");
 }
 
+function showTopOverlay(): void {
+	if (!state.tui || state.topOverlay) return;
+	state.topOverlay = state.tui.showOverlay(new TopOverlayComponent(state.tui), {
+		anchor: "top-left",
+		row: 0,
+		col: 0,
+		width: "100%",
+		nonCapturing: true,
+	});
+	state.etcOverlayVisible = true;
+	queueLog("top overlay shown");
+}
+
+function hideTopOverlay(): void {
+	state.topOverlay?.hide();
+	state.topOverlay = undefined;
+	state.etcOverlayVisible = false;
+	queueLog("top overlay hidden");
+}
+
+function toggleTopOverlay(): void {
+	if (state.etcOverlayVisible) {
+		hideTopOverlay();
+	} else {
+		showTopOverlay();
+	}
+}
+
 function enableMouseTracking(): void {
 	state.tui?.terminal.write(ENABLE_MOUSE);
 	queueLog("mouse tracking enabled");
@@ -625,14 +653,8 @@ function parseCommand(args: string): TouchCommand | undefined {
 }
 
 export default function piTouchExtension(pi: ExtensionAPI) {
-	pi.on("session_start", async (_event, ctx) => {
-		if (!ctx.hasUI) return;
-		const shouldEnable = await loadPersisted();
-		if (shouldEnable) {
-			// Small delay so the TUI finishes initialising
-			setTimeout(() => enableTouchMode(ctx as unknown as ExtensionCommandContext, false), 200);
-		}
-	});
+	// Touch mode is always disabled on startup for safety.
+	// Use /touch to toggle it on/off manually.
 
 	pi.on("session_shutdown", async () => {
 		// persist=false: don't overwrite the saved state on shutdown so it survives to the next session
@@ -644,6 +666,22 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 		state.notify = undefined;
 		state.theme = undefined;
 		state.setWidget = undefined;
+	});
+
+	pi.registerCommand("touch", {
+		description: "Toggle touch mode on/off",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) {
+				console.log("pi-touch requires interactive mode.");
+				return;
+			}
+			state.statusSink = ctx.ui.setStatus;
+			state.notify = ctx.ui.notify;
+			state.theme = ctx.ui.theme;
+			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
+			if (state.enabled) disableTouchMode(ctx);
+			else enableTouchMode(ctx);
+		},
 	});
 
 	pi.registerCommand("pi-touch", {
