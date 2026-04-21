@@ -74,6 +74,7 @@ type BarButtonBounds = {
 	action: TouchAction;
 	colStart: number;
 	colEnd: number;
+	rowOffset: number; // 0-based button-row index (each occupies 3 terminal lines)
 };
 
 type UtilButtonBounds = {
@@ -90,6 +91,7 @@ const state: {
 	originalChat?: Component;
 	barRow: number;
 	barButtons: BarButtonBounds[];
+	barActualHeight: number;
 	etcOverlayVisible: boolean;
 	topOverlay?: OverlayHandle;
 	topOverlayButtons: UtilButtonBounds[];
@@ -106,6 +108,7 @@ const state: {
 	enabled: false,
 	barRow: 0,
 	barButtons: [],
+	barActualHeight: 3,
 	etcOverlayVisible: false,
 	topOverlayButtons: [],
 	logQueue: Promise.resolve(),
@@ -207,55 +210,78 @@ class TouchBarComponent implements Component {
 		const theme = getTheme();
 		const debugState = state.viewport?.getDebugState();
 
-		// Compute each button's pixel-width (label + 2 border chars)
 		const buttonWidths = BUTTONS.map((b) => visibleWidth(b.label) + 2);
-		const totalButtonsWidth = buttonWidths.reduce((a, w) => a + w, 0) + BUTTON_GAP * (BUTTONS.length - 1);
+		const lead = " ".repeat(BAR_LEADING);
+		const usableWidth = width - BAR_LEADING;
 
-		// Build lines: top borders, labels, bottom borders
-		const tops: string[] = [];
-		const mids: string[] = [];
-		const bots: string[] = [];
-
-		const newButtons: BarButtonBounds[] = [];
-		let col = BAR_LEADING + 1; // 1-indexed
-
+		// Flow buttons into rows that fit within usableWidth
+		type BtnRow = { indices: number[]; totalWidth: number };
+		const buttonRows: BtnRow[] = [];
+		let currentRow: BtnRow = { indices: [], totalWidth: 0 };
 		for (let i = 0; i < BUTTONS.length; i++) {
-			const button = BUTTONS[i]!;
 			const bw = buttonWidths[i]!;
-			const inner = bw - 2;
-			const borderColor = button.action === "model" ? "warning" : "accent";
-
-			tops.push(theme.fg(borderColor, `╭${"─".repeat(inner)}╮`));
-			mids.push(theme.fg(borderColor, "│") + theme.bold(button.label) + theme.fg(borderColor, "│"));
-			bots.push(theme.fg(borderColor, `╰${"─".repeat(inner)}╯`));
-
-			newButtons.push({ action: button.action, colStart: col, colEnd: col + bw - 1 });
-			col += bw + BUTTON_GAP;
-
-			if (i < BUTTONS.length - 1) {
-				tops.push(" ".repeat(BUTTON_GAP));
-				mids.push(" ".repeat(BUTTON_GAP));
-				bots.push(" ".repeat(BUTTON_GAP));
+			const needed = currentRow.indices.length === 0 ? bw : currentRow.totalWidth + BUTTON_GAP + bw;
+			if (currentRow.indices.length > 0 && needed > usableWidth) {
+				buttonRows.push(currentRow);
+				currentRow = { indices: [i], totalWidth: bw };
+			} else {
+				currentRow.indices.push(i);
+				currentRow.totalWidth = needed;
 			}
 		}
+		if (currentRow.indices.length > 0) buttonRows.push(currentRow);
 
-		// Scroll indicator appended after buttons
-		const indicator = debugState
-			? " " + (debugState.followBottom ? theme.fg("dim", "BOT") : theme.fg("accent", `${debugState.percent}%`))
-			: "";
+		// Render each button row into 3 terminal lines
+		const allLines: string[] = [];
+		const newButtons: BarButtonBounds[] = [];
 
-		const lead = " ".repeat(BAR_LEADING);
-		const topLine = truncateToWidth(lead + tops.join(""), width);
-		const midLine = truncateToWidth(lead + mids.join("") + indicator, width);
-		const botLine = truncateToWidth(lead + bots.join(""), width);
+		for (let rowIdx = 0; rowIdx < buttonRows.length; rowIdx++) {
+			const row = buttonRows[rowIdx]!;
+			const tops: string[] = [];
+			const mids: string[] = [];
+			const bots: string[] = [];
+			let col = BAR_LEADING + 1; // 1-indexed
+
+			for (let k = 0; k < row.indices.length; k++) {
+				const i = row.indices[k]!;
+				const button = BUTTONS[i]!;
+				const bw = buttonWidths[i]!;
+				const inner = bw - 2;
+				const borderColor = button.action === "model" ? "warning" : "accent";
+
+				tops.push(theme.fg(borderColor, `╭${"─".repeat(inner)}╮`));
+				mids.push(theme.fg(borderColor, "│") + theme.bold(button.label) + theme.fg(borderColor, "│"));
+				bots.push(theme.fg(borderColor, `╰${"─".repeat(inner)}╯`));
+
+				newButtons.push({ action: button.action, colStart: col, colEnd: col + bw - 1, rowOffset: rowIdx });
+				col += bw + BUTTON_GAP;
+
+				if (k < row.indices.length - 1) {
+					tops.push(" ".repeat(BUTTON_GAP));
+					mids.push(" ".repeat(BUTTON_GAP));
+					bots.push(" ".repeat(BUTTON_GAP));
+				}
+			}
+
+			// Scroll indicator on the last row only
+			const indicator = rowIdx === buttonRows.length - 1 && debugState
+				? " " + (debugState.followBottom ? theme.fg("dim", "BOT") : theme.fg("accent", `${debugState.percent}%`))
+				: "";
+
+			allLines.push(truncateToWidth(lead + tops.join(""), width));
+			allLines.push(truncateToWidth(lead + mids.join("") + indicator, width));
+			allLines.push(truncateToWidth(lead + bots.join(""), width));
+		}
 
 		// Update bar position + button column map for click detection
+		const actualBarHeight = buttonRows.length * BAR_HEIGHT;
 		const footerChild = this.tui.children[this.tui.children.length - 1];
 		const footerHeight = footerChild ? footerChild.render(width).length : 3;
-		state.barRow = this.tui.terminal.rows - footerHeight - BAR_HEIGHT + 1; // 1-indexed
+		state.barRow = this.tui.terminal.rows - footerHeight - actualBarHeight + 1; // 1-indexed
 		state.barButtons = newButtons;
+		state.barActualHeight = actualBarHeight;
 
-		return [topLine, midLine, botLine];
+		return allLines;
 	}
 
 	invalidate(): void {}
@@ -411,6 +437,7 @@ function hidePanel(): void {
 	state.setWidget?.(BAR_WIDGET_KEY, undefined, { placement: "belowEditor" });
 	state.barRow = 0;
 	state.barButtons = [];
+	state.barActualHeight = 3;
 	queueLog("bar hidden");
 }
 
@@ -418,6 +445,7 @@ function destroyPanel(): void {
 	state.setWidget?.(BAR_WIDGET_KEY, undefined, { placement: "belowEditor" });
 	state.barRow = 0;
 	state.barButtons = [];
+	state.barActualHeight = 3;
 	queueLog("bar destroyed");
 }
 
@@ -511,10 +539,13 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			// Bottom bar buttons
 			const inBar = state.barRow > 0 &&
 				mouse.row >= state.barRow &&
-				mouse.row < state.barRow + BAR_HEIGHT;
+				mouse.row < state.barRow + state.barActualHeight;
 			if (!inBar) return { consume: true };
+			const relRow = mouse.row - state.barRow;
+			const clickedButtonRow = Math.floor(relRow / 3);
 			for (const bounds of getBarButtonBounds()) {
-				const inside = mouse.col >= bounds.colStart && mouse.col <= bounds.colEnd;
+				const inside = bounds.rowOffset === clickedButtonRow &&
+					mouse.col >= bounds.colStart && mouse.col <= bounds.colEnd;
 				if (!inside) continue;
 				state.lastAction = bounds.action;
 				queueLog(`action ${bounds.action}`);
