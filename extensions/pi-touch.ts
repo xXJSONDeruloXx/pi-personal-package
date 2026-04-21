@@ -103,6 +103,7 @@ type UtilButtonBounds = {
 	data?: string;
 	colStart: number;
 	colEnd: number;
+	rowOffset: number; // 0-based button-row index (each occupies 3 terminal lines)
 };
 
 const state: {
@@ -116,6 +117,7 @@ const state: {
 	barActualHeight: number;
 	etcOverlayVisible: boolean;
 	topOverlay?: OverlayHandle;
+	topActualHeight: number;
 	topOverlayButtons: UtilButtonBounds[];
 	inputUnsubscribe?: () => void;
 	logQueue: Promise<void>;
@@ -132,6 +134,7 @@ const state: {
 	barButtons: [],
 	barActualHeight: 3,
 	etcOverlayVisible: false,
+	topActualHeight: 3,
 	topOverlayButtons: [],
 	logQueue: Promise.resolve(),
 };
@@ -325,45 +328,70 @@ class TopOverlayComponent implements Component {
 
 	render(width: number): string[] {
 		const theme = getTheme();
+		const lead = " ".repeat(BAR_LEADING);
+		const usableWidth = width - BAR_LEADING;
 		const buttonWidths = TOP_BUTTONS.map((b) => visibleWidth(b.label) + 2);
-		const tops: string[] = [];
-		const mids: string[] = [];
-		const bots: string[] = [];
+		const allLines: string[] = [];
 		const newButtons: UtilButtonBounds[] = [];
-		let col = BAR_LEADING + 1; // 1-indexed
 
+		type BtnRow = { indices: number[]; totalWidth: number };
+		const buttonRows: BtnRow[] = [];
+		let currentRow: BtnRow = { indices: [], totalWidth: 0 };
 		for (let i = 0; i < TOP_BUTTONS.length; i++) {
-			const button = TOP_BUTTONS[i]!;
 			const bw = buttonWidths[i]!;
-			const inner = bw - 2;
-
-			tops.push(theme.fg("warning", `\u256d${"\u2500".repeat(inner)}\u256e`));
-			mids.push(theme.fg("warning", "\u2502") + theme.bold(button.label) + theme.fg("warning", "\u2502"));
-			bots.push(theme.fg("warning", `\u2570${"\u2500".repeat(inner)}\u256f`));
-
-			newButtons.push({
-				actionLabel: button.actionLabel,
-				command: button.command,
-				data: button.data,
-				colStart: col,
-				colEnd: col + bw - 1,
-			});
-			col += bw + BUTTON_GAP;
-
-			if (i < TOP_BUTTONS.length - 1) {
-				tops.push(" ".repeat(BUTTON_GAP));
-				mids.push(" ".repeat(BUTTON_GAP));
-				bots.push(" ".repeat(BUTTON_GAP));
+			const needed = currentRow.indices.length === 0 ? bw : currentRow.totalWidth + BUTTON_GAP + bw;
+			if (currentRow.indices.length > 0 && needed > usableWidth) {
+				buttonRows.push(currentRow);
+				currentRow = { indices: [i], totalWidth: bw };
+			} else {
+				currentRow.indices.push(i);
+				currentRow.totalWidth = needed;
 			}
+		}
+		if (currentRow.indices.length > 0) buttonRows.push(currentRow);
+
+		for (let rowIdx = 0; rowIdx < buttonRows.length; rowIdx++) {
+			const row = buttonRows[rowIdx]!;
+			const tops: string[] = [];
+			const mids: string[] = [];
+			const bots: string[] = [];
+			let col = BAR_LEADING + 1; // 1-indexed
+
+			for (let k = 0; k < row.indices.length; k++) {
+				const i = row.indices[k]!;
+				const button = TOP_BUTTONS[i]!;
+				const bw = buttonWidths[i]!;
+				const inner = bw - 2;
+
+				tops.push(theme.fg("warning", `╭${"─".repeat(inner)}╮`));
+				mids.push(theme.fg("warning", "│") + theme.bold(button.label) + theme.fg("warning", "│"));
+				bots.push(theme.fg("warning", `╰${"─".repeat(inner)}╯`));
+
+				newButtons.push({
+					actionLabel: button.actionLabel,
+					command: button.command,
+					data: button.data,
+					colStart: col,
+					colEnd: col + bw - 1,
+					rowOffset: rowIdx,
+				});
+				col += bw + BUTTON_GAP;
+
+				if (k < row.indices.length - 1) {
+					tops.push(" ".repeat(BUTTON_GAP));
+					mids.push(" ".repeat(BUTTON_GAP));
+					bots.push(" ".repeat(BUTTON_GAP));
+				}
+			}
+
+			allLines.push(truncateToWidth(lead + tops.join(""), width));
+			allLines.push(truncateToWidth(lead + mids.join(""), width));
+			allLines.push(truncateToWidth(lead + bots.join(""), width));
 		}
 
 		state.topOverlayButtons = newButtons;
-		const lead = " ".repeat(BAR_LEADING);
-		return [
-			truncateToWidth(lead + tops.join(""), width),
-			truncateToWidth(lead + mids.join(""), width),
-			truncateToWidth(lead + bots.join(""), width),
-		];
+		state.topActualHeight = Math.max(BAR_HEIGHT, buttonRows.length * BAR_HEIGHT);
+		return allLines;
 	}
 
 	invalidate(): void {}
@@ -511,6 +539,8 @@ function hideTopOverlay(): void {
 	state.topOverlay?.hide();
 	state.topOverlay = undefined;
 	state.etcOverlayVisible = false;
+	state.topOverlayButtons = [];
+	state.topActualHeight = BAR_HEIGHT;
 	queueLog("top overlay hidden");
 }
 
@@ -568,10 +598,11 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			state.lastMouse = mouse;
 			queueLog(`mouse ${mouse.phase} code=${mouse.code} row=${mouse.row} col=${mouse.col}`);
 			if (!state.enabled || !isPrimaryPointerPress(mouse)) return { consume: true };
-			// Top overlay (ETC panel) — rows 1–3 from top of screen
-			if (state.etcOverlayVisible && mouse.row >= 1 && mouse.row <= BAR_HEIGHT) {
+			// Top overlay (ETC panel) — variable number of 3-line button rows from top of screen
+			if (state.etcOverlayVisible && mouse.row >= 1 && mouse.row <= state.topActualHeight) {
+				const clickedButtonRow = Math.floor((mouse.row - 1) / BAR_HEIGHT);
 				for (const btn of state.topOverlayButtons) {
-					if (mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
+					if (btn.rowOffset === clickedButtonRow && mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
 						state.lastAction = `etc:${btn.actionLabel}`;
 						queueLog(`etc action: ${btn.actionLabel}`);
 						if (btn.command) {
