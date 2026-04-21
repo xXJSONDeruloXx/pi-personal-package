@@ -5,8 +5,6 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-let gPi: ExtensionAPI | undefined;
-
 type TouchCommand =
 	| "on"
 	| "off"
@@ -128,9 +126,6 @@ const state: {
 	topButtonsHeight: number;
 	topActualHeight: number;
 	promptMirrorVisible: boolean;
-	mirrorCompletionOpen?: boolean;
-	mirrorCompletionItems?: { name: string; description?: string }[];
-	mirrorSelectionIndex?: number;
 	topOverlayButtons: UtilButtonBounds[];
 	inputUnsubscribe?: () => void;
 	logQueue: Promise<void>;
@@ -152,9 +147,6 @@ const state: {
 	topButtonsHeight: 3,
 	topActualHeight: 3 + PROMPT_MIRROR_HEIGHT,
 	promptMirrorVisible: true,
-	mirrorCompletionOpen: false,
-	mirrorCompletionItems: [],
-	mirrorSelectionIndex: 0,
 	topOverlayButtons: [],
 	logQueue: Promise.resolve(),
 	renderQueued: false,
@@ -414,31 +406,9 @@ class TopOverlayComponent implements Component {
 		const buttonsHeight = Math.max(BAR_HEIGHT, buttonRows.length * BAR_HEIGHT);
 		const mirrorLines = state.promptMirrorVisible ? renderPromptMirror(theme, width) : [];
 		allLines.push(...mirrorLines);
-
-		// Compute slash-command completions for the mirror
-		const raw = getPromptMirrorText();
-		let suggestions = [] as { name: string; description?: string }[];
-		if (state.promptMirrorVisible && raw.trimStart().startsWith("/")) {
-			suggestions = computeMirrorCompletions(raw);
-		}
-		state.mirrorCompletionItems = suggestions;
-		if (!state.mirrorSelectionIndex) state.mirrorSelectionIndex = state.mirrorSelectionIndex ?? 0;
-
-		const suggestionLines: string[] = [];
-		const innerWidth = Math.max(1, width - 2 - BAR_LEADING);
-		for (let i = 0; i < suggestions.length; i++) {
-			const item = suggestions[i]!;
-			const text = `/${item.name}${item.description ? " — " + item.description : ""}`;
-			const display = i === (state.mirrorSelectionIndex ?? 0)
-				? theme.fg("accent", theme.bold(text))
-				: theme.fg("dim", text);
-			suggestionLines.push(truncateToWidth(" ".repeat(BAR_LEADING) + display, width));
-		}
-
-		allLines.push(...suggestionLines);
 		state.topOverlayButtons = newButtons;
 		state.topButtonsHeight = buttonsHeight;
-		state.topActualHeight = buttonsHeight + mirrorLines.length + suggestionLines.length;
+		state.topActualHeight = buttonsHeight + mirrorLines.length;
 		return allLines;
 	}
 
@@ -558,24 +528,6 @@ function renderPromptMirror(theme: Theme, width: number): string[] {
 		lead + border("│") + body + " ".repeat(pad) + border("│"),
 		lead + border(`╰${"─".repeat(innerWidth)}╯`),
 	];
-}
-
-function computeMirrorCompletions(rawText: string) {
-	if (!gPi) return [];
-	const t = rawText.trimStart();
-	if (!t.startsWith("/")) return [];
-	const token = t.slice(1).split(/\s+/)[0].toLowerCase();
-	if (!token) return [];
-	try {
-		const all = gPi.getCommands ? gPi.getCommands() : [] as any[];
-		const matches = all
-			.filter((c: any) => typeof c.name === "string" && c.name.toLowerCase().startsWith(token))
-			.slice(0, 10)
-			.map((c: any) => ({ name: c.name, description: c.description ?? "" }));
-		return matches;
-	} catch {
-		return [];
-	}
 }
 
 function installViewport(): void {
@@ -708,52 +660,30 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			state.lastMouse = mouse;
 			queueLog(`mouse ${mouse.phase} code=${mouse.code} row=${mouse.row} col=${mouse.col}`);
 			if (!state.enabled || !isPrimaryPointerPress(mouse)) return { consume: true };
-			// Top overlay (ETC panel + prompt mirror) — buttons, mirror, and suggestions are all part of this block
+			// Top overlay (ETC panel + prompt mirror) — only the button rows are clickable
 			if (state.etcOverlayVisible && mouse.row >= 1 && mouse.row <= state.topActualHeight) {
-				const rowIndex = mouse.row - 1; // 0-based
-				// Button rows
-				if (rowIndex < state.topButtonsHeight) {
-					const clickedButtonRow = Math.floor(rowIndex / BAR_HEIGHT);
-					for (const btn of state.topOverlayButtons) {
-						if (btn.rowOffset === clickedButtonRow && mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
-							state.lastAction = `etc:${btn.actionLabel}`;
-							queueLog(`etc action: ${btn.actionLabel}`);
-							if (btn.internalAction === "togglePromptMirror") {
-								state.promptMirrorVisible = !state.promptMirrorVisible;
-								scheduleRender();
-								return { consume: true };
-							}
-							if (btn.command) {
-								state.setEditorText?.(btn.command);
-								scheduleRender();
-								return { data: "\r" };
-							}
-							if (btn.data) {
-								return { data: btn.data };
-							}
+				if (mouse.row > state.topButtonsHeight) return { consume: true };
+				const clickedButtonRow = Math.floor((mouse.row - 1) / BAR_HEIGHT);
+				for (const btn of state.topOverlayButtons) {
+					if (btn.rowOffset === clickedButtonRow && mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
+						state.lastAction = `etc:${btn.actionLabel}`;
+						queueLog(`etc action: ${btn.actionLabel}`);
+						if (btn.internalAction === "togglePromptMirror") {
+							state.promptMirrorVisible = !state.promptMirrorVisible;
+							scheduleRender();
 							return { consume: true };
 						}
+						if (btn.command) {
+							state.setEditorText?.(btn.command);
+							scheduleRender();
+							return { data: "\r" };
+						}
+						if (btn.data) {
+							return { data: btn.data };
+						}
+						return { consume: true };
 					}
-					return { consume: true };
 				}
-
-				// Mirror area (non-clickable)
-				if (rowIndex < state.topButtonsHeight + PROMPT_MIRROR_HEIGHT) {
-					return { consume: true };
-				}
-
-				// Suggestion rows
-				const suggestionIndex = rowIndex - state.topButtonsHeight - PROMPT_MIRROR_HEIGHT;
-				const items = state.mirrorCompletionItems ?? [];
-				if (items.length > 0 && suggestionIndex >= 0 && suggestionIndex < items.length) {
-					const sel = items[suggestionIndex]!;
-					state.setEditorText?.('/' + sel.name + ' ');
-					state.mirrorCompletionItems = [];
-					state.mirrorSelectionIndex = 0;
-					scheduleRender();
-					return { consume: true };
-				}
-
 				return { consume: true };
 			}
 			// Bottom bar buttons
@@ -809,44 +739,6 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 		}
 
 		if (state.enabled && state.etcOverlayVisible) scheduleRender();
-
-		// Mirror completions keyboard handling
-		if (state.enabled && state.promptMirrorVisible) {
-			const raw = state.getEditorText?.() ?? "";
-			const items = (state.mirrorCompletionItems && state.mirrorCompletionItems.length > 0)
-				? state.mirrorCompletionItems
-				: computeMirrorCompletions(raw);
-			if (items.length > 0) {
-				state.mirrorCompletionItems = items;
-				state.mirrorSelectionIndex = state.mirrorSelectionIndex ?? 0;
-				const n = items.length;
-				if (matchesKey(data, Key.up)) {
-					state.mirrorSelectionIndex = (state.mirrorSelectionIndex - 1 + n) % n;
-					scheduleRender();
-					return { consume: true };
-				}
-				if (matchesKey(data, Key.down)) {
-					state.mirrorSelectionIndex = (state.mirrorSelectionIndex + 1) % n;
-					scheduleRender();
-					return { consume: true };
-				}
-				if (matchesKey(data, Key.enter) || matchesKey(data, Key.tab)) {
-					const sel = items[state.mirrorSelectionIndex]!
-					state.setEditorText?.('/' + sel.name + ' ');
-					state.mirrorCompletionItems = [];
-					state.mirrorSelectionIndex = 0;
-					scheduleRender();
-					return { consume: true };
-				}
-				if (matchesKey(data, Key.escape)) {
-					state.mirrorCompletionItems = [];
-					state.mirrorSelectionIndex = 0;
-					scheduleRender();
-					return { consume: true };
-				}
-			}
-		}
-
 		if (!state.enabled) return undefined;
 		if (matchesKey(data, Key.pageUp)) {
 			state.lastAction = "pageUp(keyboard)";
@@ -966,7 +858,6 @@ function parseCommand(args: string): TouchCommand | undefined {
 }
 
 export default function piTouchExtension(pi: ExtensionAPI) {
-	gPi = pi;
 	// Auto-enable touch mode on startup if it was enabled in the last session.
 	// Emergency escape hatch: edit ~/.pi/agent/pi-touch-persist.json and set
 	//   "autoEnable": false   — touch mode will never auto-start until you flip it back.
