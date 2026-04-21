@@ -79,6 +79,7 @@ type TopButton = {
 	actionLabel: string;
 	command?: string;
 	data?: string;
+	internalAction?: "togglePromptMirror";
 };
 
 const TOP_BUTTONS: TopButton[] = [
@@ -89,6 +90,7 @@ const TOP_BUTTONS: TopButton[] = [
 	{ label: " /tree ", actionLabel: "/tree", command: "/tree" },
 	{ label: "  ^C   ", actionLabel: "ctrl+c", data: "\x03" },
 	{ label: " ⌥ ↵ ", actionLabel: "alt+enter", data: "\x1b\r" },
+	{ label: " MIR ", actionLabel: "toggle-prompt-mirror", internalAction: "togglePromptMirror" },
 ];
 
 type BarButtonBounds = {
@@ -102,10 +104,13 @@ type UtilButtonBounds = {
 	actionLabel: string;
 	command?: string;
 	data?: string;
+	internalAction?: "togglePromptMirror";
 	colStart: number;
 	colEnd: number;
 	rowOffset: number; // 0-based button-row index (each occupies 3 terminal lines)
 };
+
+const PROMPT_MIRROR_HEIGHT = 3;
 
 const state: {
 	enabled: boolean;
@@ -118,16 +123,20 @@ const state: {
 	barActualHeight: number;
 	etcOverlayVisible: boolean;
 	topOverlay?: OverlayHandle;
+	topButtonsHeight: number;
 	topActualHeight: number;
+	promptMirrorVisible: boolean;
 	topOverlayButtons: UtilButtonBounds[];
 	inputUnsubscribe?: () => void;
 	logQueue: Promise<void>;
+	renderQueued: boolean;
 	lastInput?: string;
 	lastMouse?: MouseInput;
 	lastAction?: string;
 	statusSink?: (key: string, text: string | undefined) => void;
 	notify?: (message: string, type?: "info" | "warning" | "error") => void;
 	setEditorText?: (text: string) => void;
+	getEditorText?: () => string;
 	setWidget?: (key: string, content: any, options?: any) => void;
 } = {
 	enabled: false,
@@ -135,9 +144,12 @@ const state: {
 	barButtons: [],
 	barActualHeight: 3,
 	etcOverlayVisible: false,
-	topActualHeight: 3,
+	topButtonsHeight: 3,
+	topActualHeight: 3 + PROMPT_MIRROR_HEIGHT,
+	promptMirrorVisible: true,
 	topOverlayButtons: [],
 	logQueue: Promise.resolve(),
+	renderQueued: false,
 };
 
 function getTheme(): Theme {
@@ -372,6 +384,7 @@ class TopOverlayComponent implements Component {
 					actionLabel: button.actionLabel,
 					command: button.command,
 					data: button.data,
+					internalAction: button.internalAction,
 					colStart: col,
 					colEnd: col + bw - 1,
 					rowOffset: rowIdx,
@@ -390,8 +403,12 @@ class TopOverlayComponent implements Component {
 			allLines.push(truncateToWidth(lead + bots.join(""), width));
 		}
 
+		const buttonsHeight = Math.max(BAR_HEIGHT, buttonRows.length * BAR_HEIGHT);
+		const mirrorLines = state.promptMirrorVisible ? renderPromptMirror(theme, width) : [];
+		allLines.push(...mirrorLines);
 		state.topOverlayButtons = newButtons;
-		state.topActualHeight = Math.max(BAR_HEIGHT, buttonRows.length * BAR_HEIGHT);
+		state.topButtonsHeight = buttonsHeight;
+		state.topActualHeight = buttonsHeight + mirrorLines.length;
 		return allLines;
 	}
 
@@ -471,6 +488,48 @@ function queueLog(message: string): void {
 		.catch(() => undefined);
 }
 
+function scheduleRender(): void {
+	if (state.renderQueued) return;
+	state.renderQueued = true;
+	queueMicrotask(() => {
+		state.renderQueued = false;
+		state.tui?.requestRender();
+	});
+}
+
+function getPromptMirrorText(): string {
+	try {
+		return state.getEditorText?.() ?? "";
+	} catch {
+		return "";
+	}
+}
+
+function tailToWidth(text: string, width: number): string {
+	if (width <= 0) return "";
+	if (visibleWidth(text) <= width) return text;
+	let out = text;
+	while (out.length > 0 && visibleWidth(`…${out}`) > width) out = out.slice(1);
+	return `…${out}`;
+}
+
+function renderPromptMirror(theme: Theme, width: number): string[] {
+	const innerWidth = Math.max(1, width - 2 - BAR_LEADING);
+	const border = (s: string) => theme.fg("accent", s);
+	const lead = " ".repeat(BAR_LEADING);
+	const rawText = getPromptMirrorText();
+	const preview = rawText.length > 0
+		? tailToWidth(rawText.replace(/\n/g, " ↵ "), Math.max(1, innerWidth - 2))
+		: theme.fg("dim", "(prompt empty)");
+	const body = truncateToWidth(` > ${preview}`, innerWidth, "", true);
+	const pad = Math.max(0, innerWidth - visibleWidth(body));
+	return [
+		lead + border(`╭${"─".repeat(innerWidth)}╮`),
+		lead + border("│") + body + " ".repeat(pad) + border("│"),
+		lead + border(`╰${"─".repeat(innerWidth)}╯`),
+	];
+}
+
 function installViewport(): void {
 	if (!state.tui) return;
 	const current = state.tui.children[CHAT_CHILD_INDEX];
@@ -541,7 +600,8 @@ function hideTopOverlay(): void {
 	state.topOverlay = undefined;
 	state.etcOverlayVisible = false;
 	state.topOverlayButtons = [];
-	state.topActualHeight = BAR_HEIGHT;
+	state.topButtonsHeight = BAR_HEIGHT;
+	state.topActualHeight = BAR_HEIGHT + PROMPT_MIRROR_HEIGHT;
 	queueLog("top overlay hidden");
 }
 
@@ -566,6 +626,7 @@ function disableMouseTracking(): void {
 function clearCapturedTui(): void {
 	state.tui = undefined;
 	state.theme = undefined;
+	state.getEditorText = undefined;
 	state.setWidget = undefined;
 }
 
@@ -599,15 +660,22 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			state.lastMouse = mouse;
 			queueLog(`mouse ${mouse.phase} code=${mouse.code} row=${mouse.row} col=${mouse.col}`);
 			if (!state.enabled || !isPrimaryPointerPress(mouse)) return { consume: true };
-			// Top overlay (ETC panel) — variable number of 3-line button rows from top of screen
+			// Top overlay (ETC panel + prompt mirror) — only the button rows are clickable
 			if (state.etcOverlayVisible && mouse.row >= 1 && mouse.row <= state.topActualHeight) {
+				if (mouse.row > state.topButtonsHeight) return { consume: true };
 				const clickedButtonRow = Math.floor((mouse.row - 1) / BAR_HEIGHT);
 				for (const btn of state.topOverlayButtons) {
 					if (btn.rowOffset === clickedButtonRow && mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
 						state.lastAction = `etc:${btn.actionLabel}`;
 						queueLog(`etc action: ${btn.actionLabel}`);
+						if (btn.internalAction === "togglePromptMirror") {
+							state.promptMirrorVisible = !state.promptMirrorVisible;
+							scheduleRender();
+							return { consume: true };
+						}
 						if (btn.command) {
 							state.setEditorText?.(btn.command);
+							scheduleRender();
 							return { data: "\r" };
 						}
 						if (btn.data) {
@@ -636,6 +704,7 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 						return { data: "\x1b" };
 					case "slash":
 						state.setEditorText?.("");
+						scheduleRender();
 						return { data: "/" };
 					case "top":
 						state.viewport?.toTop();
@@ -669,6 +738,7 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			return { consume: true };
 		}
 
+		if (state.enabled && state.etcOverlayVisible) scheduleRender();
 		if (!state.enabled) return undefined;
 		if (matchesKey(data, Key.pageUp)) {
 			state.lastAction = "pageUp(keyboard)";
@@ -727,6 +797,7 @@ function enableTouchMode(ctx: ExtensionCommandContext, persist = true): void {
 	state.notify = ctx.ui.notify;
 	state.theme = ctx.ui.theme;
 	state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
+	state.getEditorText = ctx.ui.getEditorText.bind(ctx.ui);
 	state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
 	if (!captureTui(ctx) || !state.tui) {
 		ctx.ui.notify("pi-touch: failed to capture TUI instance", "error");
@@ -812,6 +883,7 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 		state.statusSink = undefined;
 		state.notify = undefined;
 		state.theme = undefined;
+		state.getEditorText = undefined;
 		state.setWidget = undefined;
 	});
 
