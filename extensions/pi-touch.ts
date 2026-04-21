@@ -88,7 +88,7 @@ const TOP_BUTTONS: TopButton[] = [
 	{ label: "/resume", actionLabel: "/resume", command: "/resume" },
 	{ label: " /tree ", actionLabel: "/tree", command: "/tree" },
 	{ label: "  ^C   ", actionLabel: "ctrl+c", data: "\x03" },
-	{ label: "  ⌥↵  ", actionLabel: "alt+enter", data: "\x1b\r" },
+	{ label: " ⌥ ↵ ", actionLabel: "alt+enter", data: "\x1b\r" },
 ];
 
 type BarButtonBounds = {
