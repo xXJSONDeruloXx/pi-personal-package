@@ -16,7 +16,7 @@ type TouchCommand =
 	| "page-up"
 	| "page-down";
 
-type TouchAction = "top" | "pageUp" | "model" | "pageDown" | "bottom" | "etc";
+type TouchAction = "esc" | "top" | "pageUp" | "model" | "pageDown" | "bottom" | "arrowLeft" | "arrowUp" | "arrowDown" | "arrowRight" | "enter" | "etc";
 
 type MouseInput = {
 	raw: string;
@@ -60,6 +60,11 @@ const BUTTONS: { action: TouchAction; label: string }[] = [
 	{ action: "model", label: "MODEL" },
 	{ action: "pageDown", label: " PG↓ " },
 	{ action: "bottom", label: " BTM " },
+	{ action: "arrowLeft", label: " ← " },
+	{ action: "arrowUp", label: " ↑ " },
+	{ action: "arrowDown", label: " ↓ " },
+	{ action: "arrowRight", label: " → " },
+	{ action: "enter", label: " ↵ " },
 	{ action: "etc", label: " ETC " },
 ];
 
@@ -565,6 +570,16 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 					case "bottom":
 						state.viewport?.toBottom();
 						return { consume: true };
+					case "arrowLeft":
+						return { data: "\x1b[D" };
+					case "arrowUp":
+						return { data: "\x1b[A" };
+					case "arrowDown":
+						return { data: "\x1b[B" };
+					case "arrowRight":
+						return { data: "\x1b[C" };
+					case "enter":
+						return { data: "\r" };
 					case "etc":
 						toggleTopOverlay();
 						return { consume: true };
