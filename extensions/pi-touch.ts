@@ -706,6 +706,20 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 		state.setWidget = undefined;
 	});
 
+	pi.registerShortcut("ctrl+shift+t", {
+		description: "Toggle touch mode on/off",
+		handler: async (ctx) => {
+			if (!ctx.hasUI) return;
+			state.statusSink = ctx.ui.setStatus;
+			state.notify = ctx.ui.notify;
+			state.theme = ctx.ui.theme;
+			state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
+			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
+			if (state.enabled) disableTouchMode(ctx);
+			else enableTouchMode(ctx);
+		},
+	});
+
 	pi.registerCommand("touch", {
 		description: "Toggle touch mode on/off",
 		handler: async (_args, ctx) => {
