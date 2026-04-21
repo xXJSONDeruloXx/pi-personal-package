@@ -54,18 +54,18 @@ const EMPTY_COMPONENT: Component = {
 };
 
 const BUTTONS: { action: TouchAction; label: string }[] = [
-	{ action: "esc", label: " ESC " },
+	{ action: "etc", label: " ETC " },
 	{ action: "top", label: " TOP " },
 	{ action: "pageUp", label: " PG↑ " },
 	{ action: "model", label: "MODEL" },
 	{ action: "pageDown", label: " PG↓ " },
 	{ action: "bottom", label: " BTM " },
-	{ action: "arrowLeft", label: " ← " },
+	{ action: "esc", label: " ESC " },
 	{ action: "arrowUp", label: " ↑ " },
 	{ action: "arrowDown", label: " ↓ " },
+	{ action: "arrowLeft", label: " ← " },
 	{ action: "arrowRight", label: " → " },
 	{ action: "enter", label: " ↵ " },
-	{ action: "etc", label: " ETC " },
 ];
 
 /** Utility buttons shown in the ETC top overlay. Add more entries here to extend. */
