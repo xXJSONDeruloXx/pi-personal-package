@@ -16,7 +16,7 @@ type TouchCommand =
 	| "page-up"
 	| "page-down";
 
-type TouchAction = "esc" | "top" | "pageUp" | "model" | "pageDown" | "bottom" | "arrowLeft" | "arrowUp" | "arrowDown" | "arrowRight" | "enter" | "altEnter" | "slash" | "etc";
+type TouchAction = "esc" | "top" | "pageUp" | "model" | "pageDown" | "bottom" | "arrowLeft" | "arrowUp" | "arrowDown" | "arrowRight" | "enter" | "slash" | "etc";
 
 type MouseInput = {
 	raw: string;
@@ -70,7 +70,6 @@ const BUTTON_GROUPS: { action: TouchAction; label: string }[][] = [
 		{ action: "arrowLeft", label: " ← " },
 		{ action: "arrowRight", label: " → " },
 		{ action: "enter", label: " ↵ " },
-		{ action: "altEnter", label: "⌥↵" },
 	],
 ];
 
@@ -89,6 +88,7 @@ const TOP_BUTTONS: TopButton[] = [
 	{ label: "/resume", actionLabel: "/resume", command: "/resume" },
 	{ label: " /tree ", actionLabel: "/tree", command: "/tree" },
 	{ label: "  ^C   ", actionLabel: "ctrl+c", data: "\x03" },
+	{ label: "  ⌥↵  ", actionLabel: "alt+enter", data: "\x1b\r" },
 ];
 
 type BarButtonBounds = {
@@ -661,8 +661,6 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 						return { data: "\x1b[C" };
 					case "enter":
 						return { data: "\r" };
-					case "altEnter":
-						return { data: "\x1b\r" };
 					case "etc":
 						toggleTopOverlay();
 						return { consume: true };
