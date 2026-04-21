@@ -46,6 +46,8 @@ const BAR_HEIGHT = 3;
 const BUTTON_GAP = 1;
 const BAR_LEADING = 1;
 const MODEL_CYCLE_INPUT = "\x10";
+const PAGE_SCROLL_OVERLAP_LINES = 8;
+const MIN_PAGE_SCROLL_LINES = 3;
 const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1006h";
 const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1006l";
 const EMPTY_COMPONENT: Component = {
@@ -237,7 +239,8 @@ class TouchViewport implements Component {
 	}
 
 	private getPageSize(): number {
-		return Math.max(1, this.lastVisibleHeight - 5);
+		const overlappedStep = this.lastVisibleHeight - PAGE_SCROLL_OVERLAP_LINES;
+		return Math.max(1, Math.min(this.lastVisibleHeight - 1, Math.max(MIN_PAGE_SCROLL_LINES, overlappedStep)));
 	}
 }
 

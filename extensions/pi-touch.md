@@ -209,6 +209,11 @@ Typical behaviors:
 - `viewport.toBottom()`
 - `toggleTopOverlay()`
 
+Current paging behavior:
+- page up/down intentionally leaves more overlap than before to reduce disorientation
+- target overlap is currently `8` lines
+- on very short viewports, paging still moves at least `3` lines so the control does not feel stuck
+
 ## Rendering / hit-testing model
 
 Both bars use a rendered-box model.
@@ -356,6 +361,7 @@ When changing `pi-touch`, verify:
 - top overlay wraps and click hit-testing still works
 - bottom bar wraps and click hit-testing still works
 - `/` button still triggers the slash-command dropdown immediately
+- `PG↑` / `PG↓` feel less jumpy and preserve visible context between pages
 - `^C` still sends real Ctrl+C
 - `⌥ ↵` still queues follow-up correctly
 - startup failures do not break pi
