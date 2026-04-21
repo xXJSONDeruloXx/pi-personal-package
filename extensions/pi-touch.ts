@@ -16,7 +16,7 @@ type TouchCommand =
 	| "page-up"
 	| "page-down";
 
-type TouchAction = "esc" | "top" | "pageUp" | "model" | "pageDown" | "bottom" | "arrowLeft" | "arrowUp" | "arrowDown" | "arrowRight" | "enter" | "etc";
+type TouchAction = "esc" | "top" | "pageUp" | "model" | "pageDown" | "bottom" | "arrowLeft" | "arrowUp" | "arrowDown" | "arrowRight" | "enter" | "slash" | "etc";
 
 type MouseInput = {
 	raw: string;
@@ -64,6 +64,7 @@ const BUTTON_GROUPS: { action: TouchAction; label: string }[][] = [
 	],
 	[
 		{ action: "esc", label: " ESC " },
+		{ action: "slash", label: "  /  " },
 		{ action: "arrowUp", label: " ↑ " },
 		{ action: "arrowDown", label: " ↓ " },
 		{ action: "arrowLeft", label: " ← " },
@@ -579,6 +580,9 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 				switch (bounds.action) {
 					case "esc":
 						return { data: "\x1b" };
+					case "slash":
+						state.setEditorText?.("/");
+						return { consume: true };
 					case "top":
 						state.viewport?.toTop();
 						return { consume: true };
