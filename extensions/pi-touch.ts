@@ -730,20 +730,14 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 	// Auto-enable touch mode on startup if it was enabled in the last session.
 	// Emergency escape hatch: edit ~/.pi/agent/pi-touch-persist.json and set
 	//   "autoEnable": false   — touch mode will never auto-start until you flip it back.
-	pi.on("session_start", async (ctx) => {
+	pi.on("session_start", async (_event, ctx) => {
 		if (!ctx.hasUI) return;
 		try {
 			const { enabled, autoEnable } = await loadPersisted();
 			if (!enabled || !autoEnable) return;
-			state.statusSink = ctx.ui.setStatus;
-			state.notify = ctx.ui.notify;
-			state.theme = ctx.ui.theme;
-			state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
-			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
-			// Defer until TUI has fully initialized its first render
 			setTimeout(() => {
-				try { enableTouchMode(ctx, false); } catch { /* never break startup */ }
-			}, 300);
+				try { enableTouchMode(ctx as unknown as ExtensionCommandContext, false); } catch { /* never break startup */ }
+			}, 200);
 		} catch {
 			// Never let startup failures break pi
 		}
