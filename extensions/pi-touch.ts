@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { Component, TUI, Theme } from "@mariozechner/pi-tui";
+import type { Component, OverlayHandle, TUI, Theme } from "@mariozechner/pi-tui";
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -16,7 +16,7 @@ type TouchCommand =
 	| "page-up"
 	| "page-down";
 
-type TouchAction = "top" | "pageUp" | "model" | "pageDown" | "bottom";
+type TouchAction = "top" | "pageUp" | "model" | "pageDown" | "bottom" | "etc";
 
 type MouseInput = {
 	raw: string;
@@ -40,10 +40,11 @@ const STATUS_KEY = "pi-touch";
 const BOOTSTRAP_WIDGET_KEY = "pi-touch-bootstrap";
 const CHAT_CHILD_INDEX = 1;
 const LOG_PATH = path.join(os.homedir(), ".pi", "agent", "logs", "pi-touch.log");
+const PERSIST_PATH = path.join(os.homedir(), ".pi", "agent", "pi-touch-persist.json");
 const BAR_WIDGET_KEY = "pi-touch-bar";
-const BAR_HEIGHT = 3;  // top border + label + bottom border
-const BUTTON_GAP = 1; // space between buttons horizontally
-const BAR_LEADING = 1; // left margin before first button
+const BAR_HEIGHT = 3;
+const BUTTON_GAP = 1;
+const BAR_LEADING = 1;
 const MODEL_CYCLE_INPUT = "\x10";
 const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1006h";
 const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1006l";
@@ -58,12 +59,25 @@ const BUTTONS: { action: TouchAction; label: string }[] = [
 	{ action: "model", label: "MODEL" },
 	{ action: "pageDown", label: " PG↓ " },
 	{ action: "bottom", label: " END " },
+	{ action: "etc", label: " ETC " },
+];
+
+/** Utility buttons shown in the ETC top overlay. Add more entries here to extend. */
+const TOP_BUTTONS: { label: string; command: string }[] = [
+	{ label: " /new  ", command: "/new" },
+	{ label: "/reload", command: "/reload" },
 ];
 
 type BarButtonBounds = {
 	action: TouchAction;
-	colStart: number; // 1-indexed inclusive
-	colEnd: number;   // 1-indexed inclusive
+	colStart: number;
+	colEnd: number;
+};
+
+type UtilButtonBounds = {
+	command: string;
+	colStart: number;
+	colEnd: number;
 };
 
 const state: {
@@ -72,8 +86,11 @@ const state: {
 	tui?: TUI;
 	viewport?: TouchViewport;
 	originalChat?: Component;
-	barRow: number;       // 1-indexed row of top of bar on screen
+	barRow: number;
 	barButtons: BarButtonBounds[];
+	etcOverlayVisible: boolean;
+	topOverlay?: OverlayHandle;
+	topOverlayButtons: UtilButtonBounds[];
 	inputUnsubscribe?: () => void;
 	logQueue: Promise<void>;
 	lastInput?: string;
@@ -86,6 +103,8 @@ const state: {
 	enabled: false,
 	barRow: 0,
 	barButtons: [],
+	etcOverlayVisible: false,
+	topOverlayButtons: [],
 	logQueue: Promise.resolve(),
 };
 
@@ -243,6 +262,72 @@ function getBarButtonBounds(): BarButtonBounds[] {
 	return state.barButtons;
 }
 
+// ============================================================================
+// Top (ETC) overlay component
+// ============================================================================
+
+class TopOverlayComponent implements Component {
+	constructor(private readonly tui: TUI) {}
+
+	render(width: number): string[] {
+		const theme = getTheme();
+		const buttonWidths = TOP_BUTTONS.map((b) => visibleWidth(b.label) + 2);
+		const tops: string[] = [];
+		const mids: string[] = [];
+		const bots: string[] = [];
+		const newButtons: UtilButtonBounds[] = [];
+		let col = BAR_LEADING + 1; // 1-indexed
+
+		for (let i = 0; i < TOP_BUTTONS.length; i++) {
+			const button = TOP_BUTTONS[i]!;
+			const bw = buttonWidths[i]!;
+			const inner = bw - 2;
+
+			tops.push(theme.fg("warning", `\u256d${"\u2500".repeat(inner)}\u256e`));
+			mids.push(theme.fg("warning", "\u2502") + theme.bold(button.label) + theme.fg("warning", "\u2502"));
+			bots.push(theme.fg("warning", `\u2570${"\u2500".repeat(inner)}\u256f`));
+
+			newButtons.push({ command: button.command, colStart: col, colEnd: col + bw - 1 });
+			col += bw + BUTTON_GAP;
+
+			if (i < TOP_BUTTONS.length - 1) {
+				tops.push(" ".repeat(BUTTON_GAP));
+				mids.push(" ".repeat(BUTTON_GAP));
+				bots.push(" ".repeat(BUTTON_GAP));
+			}
+		}
+
+		state.topOverlayButtons = newButtons;
+		const lead = " ".repeat(BAR_LEADING);
+		return [
+			truncateToWidth(lead + tops.join(""), width),
+			truncateToWidth(lead + mids.join(""), width),
+			truncateToWidth(lead + bots.join(""), width),
+		];
+	}
+
+	invalidate(): void {}
+}
+
+// ============================================================================
+// Persistence
+// ============================================================================
+
+async function loadPersisted(): Promise<boolean> {
+	try {
+		const content = await fs.readFile(PERSIST_PATH, "utf8");
+		return JSON.parse(content).enabled === true;
+	} catch {
+		return false;
+	}
+}
+
+function savePersisted(enabled: boolean): Promise<void> {
+	return fs.mkdir(path.dirname(PERSIST_PATH), { recursive: true })
+		.then(() => fs.writeFile(PERSIST_PATH, JSON.stringify({ enabled }), "utf8"))
+		.catch(() => undefined);
+}
+
 function parseMouseInput(data: string): MouseInput | undefined {
 	const match = data.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
 	if (!match) return undefined;
@@ -379,7 +464,19 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			state.lastMouse = mouse;
 			queueLog(`mouse ${mouse.phase} code=${mouse.code} row=${mouse.row} col=${mouse.col}`);
 			if (!state.enabled || !isPrimaryPointerPress(mouse)) return { consume: true };
-			// Only act on clicks within the bar rows
+			// Top overlay (ETC panel) — rows 1–3 from top of screen
+			if (state.etcOverlayVisible && mouse.row >= 1 && mouse.row <= BAR_HEIGHT) {
+				for (const btn of state.topOverlayButtons) {
+					if (mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
+						state.lastAction = `etc:${btn.command}`;
+						queueLog(`etc action: ${btn.command}`);
+						hideTopOverlay();
+						return { data: btn.command + "\r" };
+					}
+				}
+				return { consume: true };
+			}
+			// Bottom bar buttons
 			const inBar = state.barRow > 0 &&
 				mouse.row >= state.barRow &&
 				mouse.row < state.barRow + BAR_HEIGHT;
@@ -403,6 +500,9 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 						return { consume: true };
 					case "bottom":
 						state.viewport?.toBottom();
+						return { consume: true };
+					case "etc":
+						toggleTopOverlay();
 						return { consume: true };
 				}
 			}
@@ -444,11 +544,12 @@ function unregisterInputHandler(): void {
 	state.inputUnsubscribe = undefined;
 }
 
-function disableTouchMode(ctx?: ExtensionCommandContext, permanent = false): void {
+function disableTouchMode(ctx?: ExtensionCommandContext, permanent = false, persist = true): void {
 	if (!state.enabled && !permanent) return;
 	state.enabled = false;
 	disableMouseTracking();
 	unregisterInputHandler();
+	hideTopOverlay();
 	hidePanel();
 	uninstallViewport();
 	state.statusSink?.(STATUS_KEY, undefined);
@@ -456,11 +557,12 @@ function disableTouchMode(ctx?: ExtensionCommandContext, permanent = false): voi
 		destroyPanel();
 		clearCapturedTui();
 	}
+	if (persist) savePersisted(false);
 	ctx?.ui.notify("pi-touch disabled", "info");
 	queueLog(`touch disabled permanent=${permanent}`);
 }
 
-function enableTouchMode(ctx: ExtensionCommandContext): void {
+function enableTouchMode(ctx: ExtensionCommandContext, persist = true): void {
 	state.statusSink = ctx.ui.setStatus;
 	state.notify = ctx.ui.notify;
 	state.theme = ctx.ui.theme;
@@ -475,6 +577,7 @@ function enableTouchMode(ctx: ExtensionCommandContext): void {
 	showPanel();
 	enableMouseTracking();
 	registerInputHandler(ctx);
+	if (persist) savePersisted(true);
 	ctx.ui.setStatus(STATUS_KEY, touchStatusText());
 	ctx.ui.notify(`pi-touch enabled • log: ${LOG_PATH}`, "info");
 	queueLog("touch enabled");
@@ -522,8 +625,18 @@ function parseCommand(args: string): TouchCommand | undefined {
 }
 
 export default function piTouchExtension(pi: ExtensionAPI) {
+	pi.on("session_start", async (_event, ctx) => {
+		if (!ctx.hasUI) return;
+		const shouldEnable = await loadPersisted();
+		if (shouldEnable) {
+			// Small delay so the TUI finishes initialising
+			setTimeout(() => enableTouchMode(ctx as unknown as ExtensionCommandContext, false), 200);
+		}
+	});
+
 	pi.on("session_shutdown", async () => {
-		disableTouchMode(undefined, true);
+		// persist=false: don't overwrite the saved state on shutdown so it survives to the next session
+		disableTouchMode(undefined, true, false);
 		state.lastInput = undefined;
 		state.lastMouse = undefined;
 		state.lastAction = undefined;
