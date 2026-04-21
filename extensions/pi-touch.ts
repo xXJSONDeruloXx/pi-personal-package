@@ -199,7 +199,7 @@ class TouchViewport implements Component {
 	}
 
 	private getPageSize(): number {
-		return Math.max(1, this.lastVisibleHeight - 2);
+		return Math.max(1, this.lastVisibleHeight - 5);
 	}
 }
 
