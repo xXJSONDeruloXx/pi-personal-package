@@ -66,6 +66,7 @@ const BUTTONS: { action: TouchAction; label: string }[] = [
 const TOP_BUTTONS: { label: string; command: string }[] = [
 	{ label: " /new  ", command: "/new" },
 	{ label: "/reload", command: "/reload" },
+	{ label: "/compact", command: "/compact" },
 ];
 
 type BarButtonBounds = {
