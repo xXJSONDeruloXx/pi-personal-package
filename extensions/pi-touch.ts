@@ -354,18 +354,32 @@ class TopOverlayComponent implements Component {
 // Persistence
 // ============================================================================
 
-async function loadPersisted(): Promise<boolean> {
+async function loadPersisted(): Promise<{ enabled: boolean; autoEnable: boolean }> {
 	try {
 		const content = await fs.readFile(PERSIST_PATH, "utf8");
-		return JSON.parse(content).enabled === true;
+		const data = JSON.parse(content);
+		return {
+			enabled: data.enabled === true,
+			autoEnable: data.autoEnable !== false, // defaults true if missing
+		};
 	} catch {
-		return false;
+		return { enabled: false, autoEnable: true };
 	}
 }
 
 function savePersisted(enabled: boolean): Promise<void> {
-	return fs.mkdir(path.dirname(PERSIST_PATH), { recursive: true })
-		.then(() => fs.writeFile(PERSIST_PATH, JSON.stringify({ enabled }), "utf8"))
+	// Preserve existing autoEnable flag; only update the enabled field.
+	return loadPersisted()
+		.then((current) =>
+			fs.mkdir(path.dirname(PERSIST_PATH), { recursive: true })
+				.then(() =>
+					fs.writeFile(
+						PERSIST_PATH,
+						JSON.stringify({ enabled, autoEnable: current.autoEnable }, null, 2),
+						"utf8",
+					),
+				),
+		)
 		.catch(() => undefined);
 }
 
@@ -713,8 +727,25 @@ function parseCommand(args: string): TouchCommand | undefined {
 }
 
 export default function piTouchExtension(pi: ExtensionAPI) {
-	// Touch mode is always disabled on startup for safety.
-	// Use /touch to toggle it on/off manually.
+	// Auto-enable touch mode on startup if it was enabled in the last session.
+	// Emergency escape hatch: edit ~/.pi/agent/pi-touch-persist.json and set
+	//   "autoEnable": false   — touch mode will never auto-start until you flip it back.
+	pi.on("session_start", async (ctx) => {
+		if (!ctx.hasUI) return;
+		try {
+			const { enabled, autoEnable } = await loadPersisted();
+			if (enabled && autoEnable) {
+				state.statusSink = ctx.ui.setStatus;
+				state.notify = ctx.ui.notify;
+				state.theme = ctx.ui.theme;
+				state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
+				state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
+				enableTouchMode(ctx, false);
+			}
+		} catch {
+			// Never let startup failures break pi
+		}
+	});
 
 	pi.on("session_shutdown", async () => {
 		// persist=false: don't overwrite the saved state on shutdown so it survives to the next session
