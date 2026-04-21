@@ -664,6 +664,7 @@ function enableTouchMode(ctx: ExtensionCommandContext, persist = true): void {
 	showPanel();
 	enableMouseTracking();
 	registerInputHandler(ctx);
+	showTopOverlay();
 	if (persist) savePersisted(true);
 	ctx.ui.setStatus(STATUS_KEY, touchStatusText());
 	ctx.ui.notify(`pi-touch enabled • log: ${LOG_PATH}`, "info");
