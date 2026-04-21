@@ -59,7 +59,7 @@ const BUTTONS: { action: TouchAction; label: string }[] = [
 	{ action: "pageUp", label: " PG↑ " },
 	{ action: "model", label: "MODEL" },
 	{ action: "pageDown", label: " PG↓ " },
-	{ action: "bottom", label: " END " },
+	{ action: "bottom", label: " BTM " },
 	{ action: "etc", label: " ETC " },
 ];
 
@@ -529,7 +529,6 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 					if (mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
 						state.lastAction = `etc:${btn.command}`;
 						queueLog(`etc action: ${btn.command}`);
-						hideTopOverlay();
 						state.setEditorText?.(btn.command);
 						return { data: "\r" };
 					}
