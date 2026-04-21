@@ -727,7 +727,7 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 		state.setWidget = undefined;
 	});
 
-	pi.registerShortcut("ctrl+o", {
+	pi.registerShortcut("ctrl+]", {
 		description: "Toggle touch mode on/off",
 		handler: async (ctx) => {
 			if (!ctx.hasUI) return;
