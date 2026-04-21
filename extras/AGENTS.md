@@ -20,13 +20,16 @@
   - For targeted historical searches across channels, use guild-wide message search in addition to forum pagination.
   - When reporting findings, clearly separate direct evidence from hypotheses; if the user asks for notes, journal them in Markdown at repo root.
   - Do not assume supporter-only channels are readable from the current account; e.g. `priority-feature-requests` may return `Missing Access`.
-- When opening a PR for GameNative, always use the repo's PR template (`.github/pull_request_template.md`) and open as a **draft**. Fill in:
-  - **Description**: `WIP` (unless the user explicitly provides a description to use).
-  - **Recording**: leave the placeholder comment.
-  - **Checklist**: include the checklist items unchecked as provided in the template.
+- When opening a PR for GameNative, always use the repo's PR template (`.github/pull_request_template.md`) and open as a **draft**.
   - By default, open the PR against the user's `origin` fork (`xXJSONDeruloXx/GameNative`), not `utkarshdalal/GameNative`, unless the user explicitly asks to target upstream.
   - Push the branch to `origin` first.
+  - Fill the template like a concise human, not a placeholder bot:
+    - **Description**: write a short, direct explanation of the bug/change in plain language. Prefer 1–3 brief sentences or a tiny paragraph. Use `WIP` only if the user explicitly wants that or no meaningful summary is available yet.
+    - **Recording**: attach the actual GitHub-uploaded recording/video, not a local filesystem path. If a before/after screenshot helps explain the issue, attach that too.
+    - **Type of Change**: check the boxes that actually apply.
+    - **Checklist**: check items that are actually true, especially when a recording is attached and the change clearly fits project scope; leave anything uncertain unchecked.
   - After opening the draft PR, always open the PR URL in the browser with `open <pr_url>`.
+  - If media needs to be attached and `gh` cannot upload it directly into the PR body, open the PR in the browser and add the screenshots/video there so the final PR body matches the polished human-authored format.
 - For GameNative PRs and commit messages the agent creates, prefer conventional/semantic prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, or `test:`.
 - When the user asks to discuss or implement asks from specific human reviewers in GameNative Discord threads or PR comments, prioritize those human asks and ignore bot review comments unless the user explicitly asks about the bots.
 - For GameNative code changes that affect runtime behavior or UI, prefer building and installing a debug APK before reporting completion, unless the user says not to.
