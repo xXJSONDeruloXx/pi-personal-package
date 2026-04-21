@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { Component, OverlayHandle, TUI, Theme } from "@mariozechner/pi-tui";
+import type { Component, TUI, Theme } from "@mariozechner/pi-tui";
 import { Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -26,13 +26,6 @@ type MouseInput = {
 	phase: "press" | "release";
 };
 
-type PanelBounds = {
-	row: number;
-	col: number;
-	width: number;
-	height: number;
-};
-
 type ViewportDebugState = {
 	scrollTop: number;
 	visibleHeight: number;
@@ -47,10 +40,10 @@ const STATUS_KEY = "pi-touch";
 const BOOTSTRAP_WIDGET_KEY = "pi-touch-bootstrap";
 const CHAT_CHILD_INDEX = 1;
 const LOG_PATH = path.join(os.homedir(), ".pi", "agent", "logs", "pi-touch.log");
-const PANEL_WIDTH = 12;
-const BUTTON_HEIGHT = 3;
-const BUTTON_GAP = 1;
-const RIGHT_MARGIN = 1;
+const BAR_WIDGET_KEY = "pi-touch-bar";
+const BAR_HEIGHT = 3;  // top border + label + bottom border
+const BUTTON_GAP = 1; // space between buttons horizontally
+const BAR_LEADING = 1; // left margin before first button
 const MODEL_CYCLE_INPUT = "\x10";
 const ENABLE_MOUSE = "\x1b[?1000h\x1b[?1006h";
 const DISABLE_MOUSE = "\x1b[?1000l\x1b[?1006l";
@@ -67,24 +60,32 @@ const BUTTONS: { action: TouchAction; label: string }[] = [
 	{ action: "bottom", label: " END " },
 ];
 
+type BarButtonBounds = {
+	action: TouchAction;
+	colStart: number; // 1-indexed inclusive
+	colEnd: number;   // 1-indexed inclusive
+};
+
 const state: {
 	enabled: boolean;
 	theme?: Theme;
 	tui?: TUI;
 	viewport?: TouchViewport;
 	originalChat?: Component;
-	panel?: TouchPanel;
-	overlay?: OverlayHandle;
+	barRow: number;       // 1-indexed row of top of bar on screen
+	barButtons: BarButtonBounds[];
 	inputUnsubscribe?: () => void;
 	logQueue: Promise<void>;
 	lastInput?: string;
 	lastMouse?: MouseInput;
 	lastAction?: string;
-	lastBounds?: PanelBounds;
 	statusSink?: (key: string, text: string | undefined) => void;
 	notify?: (message: string, type?: "info" | "warning" | "error") => void;
+	setWidget?: (key: string, content: any, options?: any) => void;
 } = {
 	enabled: false,
+	barRow: 0,
+	barButtons: [],
 	logQueue: Promise.resolve(),
 };
 
@@ -177,74 +178,69 @@ class TouchViewport implements Component {
 	}
 }
 
-class TouchPanel implements Component {
+class TouchBarComponent implements Component {
+	constructor(private readonly tui: TUI) {}
+
 	render(width: number): string[] {
 		const theme = getTheme();
-		const w = Math.max(7, width);
-		const innerWidth = Math.max(1, w - 2);
-		const lines: string[] = [];
 		const debugState = state.viewport?.getDebugState();
 
-		for (const [index, button] of BUTTONS.entries()) {
+		// Compute each button's pixel-width (label + 2 border chars)
+		const buttonWidths = BUTTONS.map((b) => visibleWidth(b.label) + 2);
+		const totalButtonsWidth = buttonWidths.reduce((a, w) => a + w, 0) + BUTTON_GAP * (BUTTONS.length - 1);
+
+		// Build lines: top borders, labels, bottom borders
+		const tops: string[] = [];
+		const mids: string[] = [];
+		const bots: string[] = [];
+
+		const newButtons: BarButtonBounds[] = [];
+		let col = BAR_LEADING + 1; // 1-indexed
+
+		for (let i = 0; i < BUTTONS.length; i++) {
+			const button = BUTTONS[i]!;
+			const bw = buttonWidths[i]!;
+			const inner = bw - 2;
 			const borderColor = button.action === "model" ? "warning" : "accent";
-			lines.push(theme.fg(borderColor, `╭${"─".repeat(innerWidth)}╮`));
-			lines.push(
-				theme.fg(borderColor, "│") +
-				center(theme.bold(button.label), innerWidth) +
-				theme.fg(borderColor, "│"),
-			);
-			lines.push(theme.fg(borderColor, `╰${"─".repeat(innerWidth)}╯`));
-			if (index !== BUTTONS.length - 1) lines.push("");
+
+			tops.push(theme.fg(borderColor, `╭${"─".repeat(inner)}╮`));
+			mids.push(theme.fg(borderColor, "│") + theme.bold(button.label) + theme.fg(borderColor, "│"));
+			bots.push(theme.fg(borderColor, `╰${"─".repeat(inner)}╯`));
+
+			newButtons.push({ action: button.action, colStart: col, colEnd: col + bw - 1 });
+			col += bw + BUTTON_GAP;
+
+			if (i < BUTTONS.length - 1) {
+				tops.push(" ".repeat(BUTTON_GAP));
+				mids.push(" ".repeat(BUTTON_GAP));
+				bots.push(" ".repeat(BUTTON_GAP));
+			}
 		}
 
-		if (debugState) {
-			const summary = debugState.followBottom ? "BOT" : `${debugState.percent}%`;
-			lines.push("");
-			lines.push(truncateToWidth(theme.fg("dim", center(summary, w)), w));
-		}
+		// Scroll indicator appended after buttons
+		const indicator = debugState
+			? " " + (debugState.followBottom ? theme.fg("dim", "BOT") : theme.fg("accent", `${debugState.percent}%`))
+			: "";
 
-		return lines.map((line) => truncateToWidth(line, w, "", true));
+		const lead = " ".repeat(BAR_LEADING);
+		const topLine = truncateToWidth(lead + tops.join(""), width);
+		const midLine = truncateToWidth(lead + mids.join("") + indicator, width);
+		const botLine = truncateToWidth(lead + bots.join(""), width);
+
+		// Update bar position + button column map for click detection
+		const footerChild = this.tui.children[this.tui.children.length - 1];
+		const footerHeight = footerChild ? footerChild.render(width).length : 3;
+		state.barRow = this.tui.terminal.rows - footerHeight - BAR_HEIGHT + 1; // 1-indexed
+		state.barButtons = newButtons;
+
+		return [topLine, midLine, botLine];
 	}
 
 	invalidate(): void {}
 }
 
-function center(text: string, width: number): string {
-	const len = visibleWidth(text);
-	if (len >= width) return truncateToWidth(text, width, "", true);
-	const left = Math.floor((width - len) / 2);
-	const right = Math.max(0, width - len - left);
-	return `${" ".repeat(left)}${text}${" ".repeat(right)}`;
-}
-
-function getPanelHeight(): number {
-	const debugLines = state.viewport ? 2 : 0;
-	return BUTTONS.length * BUTTON_HEIGHT + (BUTTONS.length - 1) * BUTTON_GAP + debugLines;
-}
-
-function getPanelBounds(tui: TUI): PanelBounds {
-	const width = Math.max(1, Math.min(PANEL_WIDTH, Math.max(1, tui.terminal.columns - RIGHT_MARGIN)));
-	const height = Math.max(1, Math.min(getPanelHeight(), tui.terminal.rows));
-	const col = Math.max(0, tui.terminal.columns - RIGHT_MARGIN - width);
-	const row = Math.max(0, Math.floor((tui.terminal.rows - height) / 2));
-	return { row, col, width, height };
-}
-
-function getButtonBounds(tui: TUI) {
-	const panel = getPanelBounds(tui);
-	state.lastBounds = panel;
-	let topOffset = 0;
-	return BUTTONS.map((button) => {
-		const bounds = {
-			action: button.action,
-			left: panel.col + 1,
-			right: panel.col + panel.width,
-			top: panel.row + topOffset + 1,
-			bottom: panel.row + topOffset + BUTTON_HEIGHT,
-		};
-		topOffset += BUTTON_HEIGHT + BUTTON_GAP;
-		return bounds;
-	});
+function getBarButtonBounds(): BarButtonBounds[] {
+	return state.barButtons;
 }
 
 function parseMouseInput(data: string): MouseInput | undefined {
@@ -315,35 +311,26 @@ function uninstallViewport(): void {
 }
 
 function showPanel(): void {
-	if (!state.tui) return;
-	if (!state.panel) state.panel = new TouchPanel();
-	if (!state.overlay) {
-		state.overlay = state.tui.showOverlay(state.panel, {
-			width: PANEL_WIDTH,
-			anchor: "right-center",
-			margin: { right: RIGHT_MARGIN },
-			nonCapturing: true,
-		});
-		queueLog("overlay shown");
-		return;
-	}
-	state.overlay.setHidden(false);
-	state.tui.requestRender();
-	queueLog("overlay revealed");
+	if (!state.setWidget) return;
+	state.setWidget(BAR_WIDGET_KEY, (tui: TUI, theme: Theme) => {
+		state.theme = theme;
+		return new TouchBarComponent(tui);
+	}, { placement: "belowEditor" });
+	queueLog("bar shown");
 }
 
 function hidePanel(): void {
-	state.overlay?.setHidden(true);
-	state.tui?.requestRender();
-	queueLog("overlay hidden");
+	state.setWidget?.(BAR_WIDGET_KEY, undefined, { placement: "belowEditor" });
+	state.barRow = 0;
+	state.barButtons = [];
+	queueLog("bar hidden");
 }
 
 function destroyPanel(): void {
-	state.overlay?.hide();
-	state.overlay = undefined;
-	state.panel = undefined;
-	state.tui?.requestRender();
-	queueLog("overlay destroyed");
+	state.setWidget?.(BAR_WIDGET_KEY, undefined, { placement: "belowEditor" });
+	state.barRow = 0;
+	state.barButtons = [];
+	queueLog("bar destroyed");
 }
 
 function enableMouseTracking(): void {
@@ -359,7 +346,7 @@ function disableMouseTracking(): void {
 function clearCapturedTui(): void {
 	state.tui = undefined;
 	state.theme = undefined;
-	state.lastBounds = undefined;
+	state.setWidget = undefined;
 }
 
 function captureTui(ctx: ExtensionCommandContext): boolean {
@@ -391,13 +378,14 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 		if (mouse) {
 			state.lastMouse = mouse;
 			queueLog(`mouse ${mouse.phase} code=${mouse.code} row=${mouse.row} col=${mouse.col}`);
-			if (!state.enabled || !state.tui || !isPrimaryPointerPress(mouse)) return { consume: true };
-			for (const bounds of getButtonBounds(state.tui)) {
-				const inside =
-					mouse.col >= bounds.left &&
-					mouse.col <= bounds.right &&
-					mouse.row >= bounds.top &&
-					mouse.row <= bounds.bottom;
+			if (!state.enabled || !isPrimaryPointerPress(mouse)) return { consume: true };
+			// Only act on clicks within the bar rows
+			const inBar = state.barRow > 0 &&
+				mouse.row >= state.barRow &&
+				mouse.row < state.barRow + BAR_HEIGHT;
+			if (!inBar) return { consume: true };
+			for (const bounds of getBarButtonBounds()) {
+				const inside = mouse.col >= bounds.colStart && mouse.col <= bounds.colEnd;
 				if (!inside) continue;
 				state.lastAction = bounds.action;
 				queueLog(`action ${bounds.action}`);
@@ -476,6 +464,7 @@ function enableTouchMode(ctx: ExtensionCommandContext): void {
 	state.statusSink = ctx.ui.setStatus;
 	state.notify = ctx.ui.notify;
 	state.theme = ctx.ui.theme;
+	state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
 	if (!captureTui(ctx) || !state.tui) {
 		ctx.ui.notify("pi-touch: failed to capture TUI instance", "error");
 		queueLog("failed to capture TUI instance");
@@ -496,7 +485,6 @@ function getStatusReport(): string {
 	const mouse = state.lastMouse
 		? `phase=${state.lastMouse.phase} code=${state.lastMouse.code} row=${state.lastMouse.row} col=${state.lastMouse.col}`
 		: "(none)";
-	const bounds = state.tui ? getPanelBounds(state.tui) : state.lastBounds;
 
 	return [
 		"# pi-touch status",
@@ -504,7 +492,7 @@ function getStatusReport(): string {
 		`- enabled: ${state.enabled}`,
 		`- log: ${LOG_PATH}`,
 		state.tui ? `- terminal: ${state.tui.terminal.columns} cols × ${state.tui.terminal.rows} rows` : "- terminal: (not captured)",
-		bounds ? `- panel: row=${bounds.row} col=${bounds.col} width=${bounds.width} height=${bounds.height}` : "- panel: (not rendered)",
+		state.barRow > 0 ? `- bar: row=${state.barRow} buttons=${state.barButtons.length}` : "- bar: (not rendered)",
 		`- last action: ${state.lastAction ?? "(none)"}`,
 		`- last input: ${state.lastInput ?? "(none)"}`,
 		`- last mouse: ${mouse}`,
@@ -542,6 +530,7 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 		state.statusSink = undefined;
 		state.notify = undefined;
 		state.theme = undefined;
+		state.setWidget = undefined;
 	});
 
 	pi.registerCommand("pi-touch", {
@@ -572,6 +561,7 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 			state.statusSink = ctx.ui.setStatus;
 			state.notify = ctx.ui.notify;
 			state.theme = ctx.ui.theme;
+			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
 			const command = parseCommand(args);
 			if (!command) {
 				ctx.ui.notify("Usage: /pi-touch [on|off|toggle|status|log|top|bottom|page-up|page-down]", "warning");
