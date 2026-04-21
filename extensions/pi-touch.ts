@@ -581,8 +581,8 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 					case "esc":
 						return { data: "\x1b" };
 					case "slash":
-						state.setEditorText?.("/");
-						return { consume: true };
+						state.setEditorText?.("");
+						return { data: "/" };
 					case "top":
 						state.viewport?.toTop();
 						return { consume: true };
