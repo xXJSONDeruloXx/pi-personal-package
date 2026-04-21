@@ -74,12 +74,20 @@ const BUTTON_GROUPS: { action: TouchAction; label: string }[][] = [
 ];
 
 /** Utility buttons shown in the ETC top overlay. Add more entries here to extend. */
-const TOP_BUTTONS: { label: string; command: string }[] = [
-	{ label: " /new  ", command: "/new" },
-	{ label: "/reload", command: "/reload" },
-	{ label: "/compact", command: "/compact" },
-	{ label: "/resume", command: "/resume" },
-	{ label: " /tree ", command: "/tree" },
+type TopButton = {
+	label: string;
+	actionLabel: string;
+	command?: string;
+	data?: string;
+};
+
+const TOP_BUTTONS: TopButton[] = [
+	{ label: " /new  ", actionLabel: "/new", command: "/new" },
+	{ label: "/reload", actionLabel: "/reload", command: "/reload" },
+	{ label: "/compact", actionLabel: "/compact", command: "/compact" },
+	{ label: "/resume", actionLabel: "/resume", command: "/resume" },
+	{ label: " /tree ", actionLabel: "/tree", command: "/tree" },
+	{ label: "  ^C   ", actionLabel: "ctrl+c", data: "\x03" },
 ];
 
 type BarButtonBounds = {
@@ -90,7 +98,9 @@ type BarButtonBounds = {
 };
 
 type UtilButtonBounds = {
-	command: string;
+	actionLabel: string;
+	command?: string;
+	data?: string;
 	colStart: number;
 	colEnd: number;
 };
@@ -331,7 +341,13 @@ class TopOverlayComponent implements Component {
 			mids.push(theme.fg("warning", "\u2502") + theme.bold(button.label) + theme.fg("warning", "\u2502"));
 			bots.push(theme.fg("warning", `\u2570${"\u2500".repeat(inner)}\u256f`));
 
-			newButtons.push({ command: button.command, colStart: col, colEnd: col + bw - 1 });
+			newButtons.push({
+				actionLabel: button.actionLabel,
+				command: button.command,
+				data: button.data,
+				colStart: col,
+				colEnd: col + bw - 1,
+			});
 			col += bw + BUTTON_GAP;
 
 			if (i < TOP_BUTTONS.length - 1) {
@@ -556,10 +572,16 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 			if (state.etcOverlayVisible && mouse.row >= 1 && mouse.row <= BAR_HEIGHT) {
 				for (const btn of state.topOverlayButtons) {
 					if (mouse.col >= btn.colStart && mouse.col <= btn.colEnd) {
-						state.lastAction = `etc:${btn.command}`;
-						queueLog(`etc action: ${btn.command}`);
-						state.setEditorText?.(btn.command);
-						return { data: "\r" };
+						state.lastAction = `etc:${btn.actionLabel}`;
+						queueLog(`etc action: ${btn.actionLabel}`);
+						if (btn.command) {
+							state.setEditorText?.(btn.command);
+							return { data: "\r" };
+						}
+						if (btn.data) {
+							return { data: btn.data };
+						}
+						return { consume: true };
 					}
 				}
 				return { consume: true };
