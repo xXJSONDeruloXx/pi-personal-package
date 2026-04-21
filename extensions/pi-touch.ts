@@ -53,19 +53,23 @@ const EMPTY_COMPONENT: Component = {
 	invalidate: () => {},
 };
 
-const BUTTONS: { action: TouchAction; label: string }[] = [
-	{ action: "etc", label: " ETC " },
-	{ action: "top", label: " TOP " },
-	{ action: "pageUp", label: " PG↑ " },
-	{ action: "model", label: "MODEL" },
-	{ action: "pageDown", label: " PG↓ " },
-	{ action: "bottom", label: " BTM " },
-	{ action: "esc", label: " ESC " },
-	{ action: "arrowUp", label: " ↑ " },
-	{ action: "arrowDown", label: " ↓ " },
-	{ action: "arrowLeft", label: " ← " },
-	{ action: "arrowRight", label: " → " },
-	{ action: "enter", label: " ↵ " },
+const BUTTON_GROUPS: { action: TouchAction; label: string }[][] = [
+	[
+		{ action: "etc", label: " ETC " },
+		{ action: "top", label: " TOP " },
+		{ action: "pageUp", label: " PG↑ " },
+		{ action: "model", label: "MODEL" },
+		{ action: "pageDown", label: " PG↓ " },
+		{ action: "bottom", label: " BTM " },
+	],
+	[
+		{ action: "esc", label: " ESC " },
+		{ action: "arrowUp", label: " ↑ " },
+		{ action: "arrowDown", label: " ↓ " },
+		{ action: "arrowLeft", label: " ← " },
+		{ action: "arrowRight", label: " → " },
+		{ action: "enter", label: " ↵ " },
+	],
 ];
 
 /** Utility buttons shown in the ETC top overlay. Add more entries here to extend. */
@@ -214,72 +218,75 @@ class TouchBarComponent implements Component {
 	render(width: number): string[] {
 		const theme = getTheme();
 		const debugState = state.viewport?.getDebugState();
-
-		const buttonWidths = BUTTONS.map((b) => visibleWidth(b.label) + 2);
 		const lead = " ".repeat(BAR_LEADING);
 		const usableWidth = width - BAR_LEADING;
 
-		// Flow buttons into rows that fit within usableWidth
-		type BtnRow = { indices: number[]; totalWidth: number };
-		const buttonRows: BtnRow[] = [];
-		let currentRow: BtnRow = { indices: [], totalWidth: 0 };
-		for (let i = 0; i < BUTTONS.length; i++) {
-			const bw = buttonWidths[i]!;
-			const needed = currentRow.indices.length === 0 ? bw : currentRow.totalWidth + BUTTON_GAP + bw;
-			if (currentRow.indices.length > 0 && needed > usableWidth) {
-				buttonRows.push(currentRow);
-				currentRow = { indices: [i], totalWidth: bw };
-			} else {
-				currentRow.indices.push(i);
-				currentRow.totalWidth = needed;
-			}
-		}
-		if (currentRow.indices.length > 0) buttonRows.push(currentRow);
-
-		// Render each button row into 3 terminal lines
 		const allLines: string[] = [];
 		const newButtons: BarButtonBounds[] = [];
+		let globalRowIdx = 0;
 
-		for (let rowIdx = 0; rowIdx < buttonRows.length; rowIdx++) {
-			const row = buttonRows[rowIdx]!;
-			const tops: string[] = [];
-			const mids: string[] = [];
-			const bots: string[] = [];
-			let col = BAR_LEADING + 1; // 1-indexed
+		for (let groupIdx = 0; groupIdx < BUTTON_GROUPS.length; groupIdx++) {
+			const group = BUTTON_GROUPS[groupIdx]!;
+			const buttonWidths = group.map((b) => visibleWidth(b.label) + 2);
 
-			for (let k = 0; k < row.indices.length; k++) {
-				const i = row.indices[k]!;
-				const button = BUTTONS[i]!;
+			// Flow this group's buttons into rows that fit within usableWidth
+			type BtnRow = { indices: number[]; totalWidth: number };
+			const buttonRows: BtnRow[] = [];
+			let currentRow: BtnRow = { indices: [], totalWidth: 0 };
+			for (let i = 0; i < group.length; i++) {
 				const bw = buttonWidths[i]!;
-				const inner = bw - 2;
-				const borderColor = button.action === "model" ? "warning" : "accent";
-
-				tops.push(theme.fg(borderColor, `╭${"─".repeat(inner)}╮`));
-				mids.push(theme.fg(borderColor, "│") + theme.bold(button.label) + theme.fg(borderColor, "│"));
-				bots.push(theme.fg(borderColor, `╰${"─".repeat(inner)}╯`));
-
-				newButtons.push({ action: button.action, colStart: col, colEnd: col + bw - 1, rowOffset: rowIdx });
-				col += bw + BUTTON_GAP;
-
-				if (k < row.indices.length - 1) {
-					tops.push(" ".repeat(BUTTON_GAP));
-					mids.push(" ".repeat(BUTTON_GAP));
-					bots.push(" ".repeat(BUTTON_GAP));
+				const needed = currentRow.indices.length === 0 ? bw : currentRow.totalWidth + BUTTON_GAP + bw;
+				if (currentRow.indices.length > 0 && needed > usableWidth) {
+					buttonRows.push(currentRow);
+					currentRow = { indices: [i], totalWidth: bw };
+				} else {
+					currentRow.indices.push(i);
+					currentRow.totalWidth = needed;
 				}
 			}
+			if (currentRow.indices.length > 0) buttonRows.push(currentRow);
 
-			// Scroll indicator on the last row only
-			const indicator = rowIdx === buttonRows.length - 1 && debugState
-				? " " + (debugState.followBottom ? theme.fg("dim", "BOT") : theme.fg("accent", `${debugState.percent}%`))
-				: "";
+			for (let rowInGroup = 0; rowInGroup < buttonRows.length; rowInGroup++) {
+				const row = buttonRows[rowInGroup]!;
+				const tops: string[] = [];
+				const mids: string[] = [];
+				const bots: string[] = [];
+				let col = BAR_LEADING + 1; // 1-indexed
 
-			allLines.push(truncateToWidth(lead + tops.join(""), width));
-			allLines.push(truncateToWidth(lead + mids.join("") + indicator, width));
-			allLines.push(truncateToWidth(lead + bots.join(""), width));
+				for (let k = 0; k < row.indices.length; k++) {
+					const i = row.indices[k]!;
+					const button = group[i]!;
+					const bw = buttonWidths[i]!;
+					const inner = bw - 2;
+					const borderColor = button.action === "model" ? "warning" : "accent";
+
+					tops.push(theme.fg(borderColor, `╭${"─".repeat(inner)}╮`));
+					mids.push(theme.fg(borderColor, "│") + theme.bold(button.label) + theme.fg(borderColor, "│"));
+					bots.push(theme.fg(borderColor, `╰${"─".repeat(inner)}╯`));
+
+					newButtons.push({ action: button.action, colStart: col, colEnd: col + bw - 1, rowOffset: globalRowIdx });
+					col += bw + BUTTON_GAP;
+
+					if (k < row.indices.length - 1) {
+						tops.push(" ".repeat(BUTTON_GAP));
+						mids.push(" ".repeat(BUTTON_GAP));
+						bots.push(" ".repeat(BUTTON_GAP));
+					}
+				}
+
+				const isLastRow = groupIdx === BUTTON_GROUPS.length - 1 && rowInGroup === buttonRows.length - 1;
+				const indicator = isLastRow && debugState
+					? " " + (debugState.followBottom ? theme.fg("dim", "BOT") : theme.fg("accent", `${debugState.percent}%`))
+					: "";
+
+				allLines.push(truncateToWidth(lead + tops.join(""), width));
+				allLines.push(truncateToWidth(lead + mids.join("") + indicator, width));
+				allLines.push(truncateToWidth(lead + bots.join(""), width));
+				globalRowIdx++;
+			}
 		}
 
-		// Update bar position + button column map for click detection
-		const actualBarHeight = buttonRows.length * BAR_HEIGHT;
+		const actualBarHeight = globalRowIdx * BAR_HEIGHT;
 		const footerChild = this.tui.children[this.tui.children.length - 1];
 		const footerHeight = footerChild ? footerChild.render(width).length : 3;
 		state.barRow = this.tui.terminal.rows - footerHeight - actualBarHeight + 1; // 1-indexed
