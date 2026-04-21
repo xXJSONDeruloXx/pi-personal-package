@@ -211,7 +211,7 @@ Typical behaviors:
 
 Current paging behavior:
 - page up/down intentionally leaves more overlap than before to reduce disorientation
-- target overlap is currently `8` lines
+- target overlap is currently `20` lines
 - on very short viewports, paging still moves at least `3` lines so the control does not feel stuck
 
 ## Rendering / hit-testing model
