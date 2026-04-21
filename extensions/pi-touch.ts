@@ -734,14 +734,20 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 		if (!ctx.hasUI) return;
 		try {
 			const { enabled, autoEnable } = await loadPersisted();
-			if (enabled && autoEnable) {
-				state.statusSink = ctx.ui.setStatus;
-				state.notify = ctx.ui.notify;
-				state.theme = ctx.ui.theme;
-				state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
-				state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
-				enableTouchMode(ctx, false);
-			}
+			if (!enabled || !autoEnable) return;
+			state.statusSink = ctx.ui.setStatus;
+			state.notify = ctx.ui.notify;
+			state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
+			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
+			// Defer until the first render cycle so captureTui can succeed
+			ctx.ui.setWidget(BOOTSTRAP_WIDGET_KEY, {
+				render: () => {
+					ctx.ui.setWidget(BOOTSTRAP_WIDGET_KEY, undefined);
+					try { enableTouchMode(ctx, false); } catch { /* never break startup */ }
+					return [];
+				},
+				invalidate: () => {},
+			}, { placement: "belowEditor" });
 		} catch {
 			// Never let startup failures break pi
 		}
