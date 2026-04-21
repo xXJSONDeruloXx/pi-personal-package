@@ -77,6 +77,8 @@ const TOP_BUTTONS: { label: string; command: string }[] = [
 	{ label: " /new  ", command: "/new" },
 	{ label: "/reload", command: "/reload" },
 	{ label: "/compact", command: "/compact" },
+	{ label: "/resume", command: "/resume" },
+	{ label: " /tree ", command: "/tree" },
 ];
 
 type BarButtonBounds = {
