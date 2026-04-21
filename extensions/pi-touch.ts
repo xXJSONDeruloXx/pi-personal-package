@@ -98,6 +98,7 @@ const state: {
 	lastAction?: string;
 	statusSink?: (key: string, text: string | undefined) => void;
 	notify?: (message: string, type?: "info" | "warning" | "error") => void;
+	setEditorText?: (text: string) => void;
 	setWidget?: (key: string, content: any, options?: any) => void;
 } = {
 	enabled: false,
@@ -499,7 +500,8 @@ function registerInputHandler(ctx: ExtensionCommandContext): void {
 						state.lastAction = `etc:${btn.command}`;
 						queueLog(`etc action: ${btn.command}`);
 						hideTopOverlay();
-						return { data: btn.command + "\r" };
+						state.setEditorText?.(btn.command);
+						return { data: "\r" };
 					}
 				}
 				return { consume: true };
@@ -594,6 +596,7 @@ function enableTouchMode(ctx: ExtensionCommandContext, persist = true): void {
 	state.statusSink = ctx.ui.setStatus;
 	state.notify = ctx.ui.notify;
 	state.theme = ctx.ui.theme;
+	state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
 	state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
 	if (!captureTui(ctx) || !state.tui) {
 		ctx.ui.notify("pi-touch: failed to capture TUI instance", "error");
@@ -678,6 +681,7 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 			state.statusSink = ctx.ui.setStatus;
 			state.notify = ctx.ui.notify;
 			state.theme = ctx.ui.theme;
+			state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
 			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
 			if (state.enabled) disableTouchMode(ctx);
 			else enableTouchMode(ctx);
@@ -712,6 +716,7 @@ export default function piTouchExtension(pi: ExtensionAPI) {
 			state.statusSink = ctx.ui.setStatus;
 			state.notify = ctx.ui.notify;
 			state.theme = ctx.ui.theme;
+			state.setEditorText = ctx.ui.setEditorText.bind(ctx.ui);
 			state.setWidget = ctx.ui.setWidget.bind(ctx.ui);
 			const command = parseCommand(args);
 			if (!command) {
