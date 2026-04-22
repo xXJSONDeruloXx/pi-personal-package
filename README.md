@@ -38,7 +38,6 @@ pi update
 - `extensions/copilot-usage-widget.ts`
 - `extensions/diff.ts`
 - `extensions/notifications.ts`
-- `extensions/pi-touch.ts`
 - `extensions/upstream-master-diff-footer.ts`
 
 ### Local skills in this repo
@@ -94,9 +93,15 @@ It intentionally leaves out:
 The diff widget appears above the prompt bar and prefers upstream when it exists, then falls back to origin.
 That makes it friendlier for personal repos that track `upstream/master` while still working fine in ordinary origin-only repos.
 
-### Experimental phone touch mode
-`extensions/pi-touch.ts` adds an opt-in `/pi-touch` command that swaps Pi into a fixed-height chat viewport and renders a right-side touch rail for phone / remote-desktop use.
-It is intentionally experimental and currently focuses on scroll controls plus a model-cycle touch target, with debug logging written to `~/.pi/agent/logs/pi-touch.log`.
+### Phone shell moved out
+The touch-first phone shell now lives in the dedicated `pi-phone-3gs` package instead of this general personal package.
+That keeps `pi-personal-package` focused on broadly useful personal Pi ergonomics while letting the phone UI evolve as its own product surface.
+
+If you want the phone shell, install:
+
+```bash
+pi install git:git@github.com:xXJSONDeruloXx/pi-phone-3gs
+```
 
 ### Subagent choice
 This package bundles `@ifi/pi-extension-subagents` as the default subagent system.
