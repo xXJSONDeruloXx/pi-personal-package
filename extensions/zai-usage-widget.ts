@@ -19,6 +19,10 @@ const SETTINGS_FILE = path.join(
 	"settings.json",
 );
 const SETTINGS_KEY = "pi-zai-usage";
+const AUTH_FILE = path.join(
+	process.env.PI_CODING_AGENT_DIR?.trim() || path.join(os.homedir(), ".pi", "agent"),
+	"auth.json",
+);
 const REFRESH_INTERVAL_MS = 90_000; // 1.5 min — 5hr window moves fast
 const FETCH_TIMEOUT_SECS = "8";
 
@@ -182,6 +186,46 @@ async function readSettings(): Promise<Record<string, unknown>> {
 async function writeSettings(settings: Record<string, unknown>): Promise<void> {
 	await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true });
 	await fs.writeFile(SETTINGS_FILE, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	return value as Record<string, unknown>;
+}
+
+async function readAuthFile(): Promise<Record<string, unknown>> {
+	try {
+		const raw = await fs.readFile(AUTH_FILE, "utf8");
+		const parsed = JSON.parse(raw);
+		return asObject(parsed) ?? {};
+	} catch (e: unknown) {
+		if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+		throw e;
+	}
+}
+
+async function resolveApiKey(pi: ExtensionAPI): Promise<string | undefined> {
+	if (process.env.ZAI_API_KEY) return process.env.ZAI_API_KEY;
+
+	const auth = await readAuthFile();
+	const zai = asObject(auth.zai);
+	if (zai?.type !== "api_key") return undefined;
+
+	const rawKey = typeof zai.key === "string" ? zai.key.trim() : "";
+	if (!rawKey) return undefined;
+
+	if (rawKey.startsWith("!")) {
+		const command = rawKey.slice(1).trim();
+		if (!command) return undefined;
+		const result = await pi.exec("sh", ["-lc", command]);
+		if (result.code !== 0) {
+			throw new Error((result.stderr || result.stdout || "Failed to resolve Z.ai API key command").trim());
+		}
+		const resolved = result.stdout.trim();
+		return resolved || undefined;
+	}
+
+	return process.env[rawKey] || rawKey;
 }
 
 function normalizePersistedSettings(value: unknown): PersistedSettings {
@@ -436,9 +480,9 @@ export default function zaiUsageWidget(pi: ExtensionAPI) {
 		}
 
 		if (!apiKey) {
-			apiKey = process.env.ZAI_API_KEY;
+			apiKey = await resolveApiKey(pi);
 			if (!apiKey) {
-				if (notifyOnError) latestCtx.ui.notify("Z.ai usage: ZAI_API_KEY not set", "warning");
+				if (notifyOnError) latestCtx.ui.notify("Z.ai usage: no API key found in ZAI_API_KEY or ~/.pi/agent/auth.json", "warning");
 				return;
 			}
 		}
