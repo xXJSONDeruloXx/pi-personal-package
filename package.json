@@ -31,6 +31,7 @@
     "pi-stash": "^0.2.0",
     "pi-tool-display": "^0.3.1",
     "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git",
+    "pi-copilot-queue": "^0.7.4",
     "yaml": "^2.8.1"
   },
   "bundledDependencies": [
@@ -47,7 +48,8 @@
     "pi-interactive-shell",
     "pi-stash",
     "pi-tool-display",
-    "pi-computer-use"
+    "pi-computer-use",
+    "pi-copilot-queue"
   ],
   "pi": {
     "prompts": [
@@ -69,7 +71,8 @@
       "./node_modules/pi-interactive-shell/index.ts",
       "./node_modules/pi-stash/src/stash.ts",
       "./node_modules/pi-tool-display/index.ts",
-      "./node_modules/pi-computer-use/src/index.ts"
+      "./node_modules/pi-computer-use/src/index.ts",
+      "./node_modules/pi-copilot-queue/src/index.ts"
     ],
     "skills": [
       "./skills",
