@@ -130,8 +130,8 @@ function isSparkModel(modelId: string | undefined): boolean {
 	return modelId === SPARK_MODEL_ID;
 }
 
-function isCodexModel(modelId: string | undefined): boolean {
-	return typeof modelId === "string" && modelId.toLowerCase().includes("codex");
+function isCodexProvider(model: ExtensionContext["model"] | undefined): boolean {
+	return model?.provider === "openai-codex";
 }
 
 function getLabel(modelId: string | undefined): string {
@@ -391,7 +391,7 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 
 	const isCodexCtx = (ctx: ExtensionContext): boolean => {
 		try {
-			return isCodexModel(ctx.model?.id);
+			return isCodexProvider(ctx.model);
 		} catch {
 			return false;
 		}

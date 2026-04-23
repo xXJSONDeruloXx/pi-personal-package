@@ -77,7 +77,7 @@ async function persistWidgetOrder(order: string[]): Promise<void> {
 // ── Extension ──────────────────────────────────────────────────────────────
 
 export default function providerWidgetControls(pi: ExtensionAPI) {
-	let currentVisibility: ProviderWidgetVisibility = "auto";
+	let currentVisibility: ProviderWidgetVisibility | null = null;
 	let settingsWriteQueue: Promise<void> = Promise.resolve();
 
 	const queuePersistOrder = (ctx: ExtensionContext) => {
@@ -97,9 +97,9 @@ export default function providerWidgetControls(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		try {
-			currentVisibility = (await loadGlobalProviderWidgetVisibility()) ?? "auto";
+			currentVisibility = await loadGlobalProviderWidgetVisibility();
 		} catch {
-			currentVisibility = "auto";
+			currentVisibility = null;
 		}
 
 		try {
@@ -118,10 +118,11 @@ export default function providerWidgetControls(pi: ExtensionAPI) {
 		getArgumentCompletions: getProviderWidgetVisibilityCompletions,
 		handler: async (args, ctx) => {
 			try {
-				currentVisibility = (await loadGlobalProviderWidgetVisibility()) ?? currentVisibility;
+				const persistedVisibility = await loadGlobalProviderWidgetVisibility();
+				if (persistedVisibility !== null) currentVisibility = persistedVisibility;
 			} catch { /* keep current */ }
 
-			const next = parseProviderWidgetVisibilityArg(args, currentVisibility);
+			const next = parseProviderWidgetVisibilityArg(args, currentVisibility ?? "auto");
 			if (!next) return;
 			currentVisibility = next;
 			await persistGlobalProviderWidgetVisibility(currentVisibility);
