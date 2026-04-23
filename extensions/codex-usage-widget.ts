@@ -320,9 +320,9 @@ function applyUI(
 		return;
 	}
 
+	const modelId = ctx.model?.id;
 	ctx.ui.setWidget(WIDGET_KEY, (_tui, widgetTheme) => ({
 		render(width: number): string[] {
-			const modelId = ctx.model?.id;
 			const staleSuffix = snapshot.stale ? ` ${widgetTheme.fg("warning", "(stale)")}` : "";
 			const limitTag = snapshot.isLimited ? widgetTheme.fg("error", " [limited]") : "";
 			const prefix = widgetTheme.fg("accent", `${getLabel(modelId)} `) + limitTag;
@@ -389,7 +389,13 @@ export default function codexUsageWidget(pi: ExtensionAPI) {
 	let globalVisibility: Visibility | null = null;
 	let settingsWriteQueue: Promise<void> = Promise.resolve();
 
-	const isCodexCtx = (ctx: ExtensionContext) => isCodexModel(ctx.model?.id);
+	const isCodexCtx = (ctx: ExtensionContext): boolean => {
+		try {
+			return isCodexModel(ctx.model?.id);
+		} catch {
+			return false;
+		}
+	};
 
 	const persistAll = (ctx: ExtensionContext) => {
 		pi.appendEntry(ENTRY_TYPE, { ...settings });
