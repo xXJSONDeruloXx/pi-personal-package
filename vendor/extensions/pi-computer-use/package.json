@@ -1,0 +1,13 @@
+{
+  "name": "pi-computer-use",
+  "version": "0.1.0",
+  "description": "Pi extension for GUI computer-use on macOS",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.48"
+  }
+}

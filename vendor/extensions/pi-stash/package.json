@@ -1,0 +1,52 @@
+{
+  "name": "pi-stash",
+  "version": "0.2.0",
+  "description": "Pi extension that stashes the current editor draft with Alt+S",
+  "type": "module",
+  "packageManager": "bun@1.3.5",
+  "files": [
+    "src/stash.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxpetretta/pi-stash.git"
+  },
+  "homepage": "https://github.com/maxpetretta/pi-stash#readme",
+  "bugs": {
+    "url": "https://github.com/maxpetretta/pi-stash/issues"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run lint && bun run typecheck && bun run test"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.3",
+    "@mariozechner/pi-coding-agent": "0.60.0",
+    "@types/node": "22.19.15",
+    "bun-types": "1.3.11",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=20.6.0",
+    "bun": ">=1.3.5"
+  },
+  "pi": {
+    "extensions": [
+      "./src/stash.ts"
+    ]
+  }
+}

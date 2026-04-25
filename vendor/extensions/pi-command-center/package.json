@@ -1,0 +1,61 @@
+{
+  "name": "pi-command-center",
+  "version": "0.1.4",
+  "description": "Scrollable widget displaying available /commands from extensions/prompts/skills, compatible with simultaneous editor use.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "commands",
+    "widget"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/w-winter/dot314.git",
+    "directory": "packages/pi-command-center"
+  },
+  "bugs": {
+    "url": "https://github.com/w-winter/dot314/issues"
+  },
+  "homepage": "https://github.com/w-winter/dot314#readme",
+  "pi": {
+    "extensions": [
+      "extensions/command-center/index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/w-winter/dot314/main/assets/command-center-demo.gif"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": ">=0.51.0",
+    "@mariozechner/pi-tui": "*"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/pi-package-prepack.mjs"
+  },
+  "files": [
+    "extensions/**",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "dot314Prepack": {
+    "copy": [
+      {
+        "from": "../../extensions/command-center/index.ts",
+        "to": "extensions/command-center/index.ts"
+      },
+      {
+        "from": "../../extensions/command-center/config.json.example",
+        "to": "extensions/command-center/config.json.example"
+      },
+      {
+        "from": "../../extensions/command-center/README.md",
+        "to": "extensions/command-center/README.md"
+      },
+      {
+        "from": "../../LICENSE",
+        "to": "LICENSE"
+      }
+    ]
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "name": "pi-tool-display",
+  "version": "0.3.1",
+  "description": "Compact tool call rendering, diff visualization, and output truncation extension for Pi coding agent. Hides, collapses, and truncates verbose tool output for cleaner TUI display.",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "config/config.example.json",
+    "assets/pi-tool-display.png",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npx --yes -p typescript@5.7.3 tsc -p tsconfig.json --noCheck",
+    "lint": "npm run build",
+    "test": "npx --yes tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run test"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-coding-agent",
+    "pi-tui",
+    "coding-agent",
+    "tui",
+    "tool-rendering",
+    "tool-output",
+    "diff-visualization",
+    "output-truncation",
+    "hide",
+    "collapse",
+    "truncate",
+    "compact",
+    "diff",
+    "output-mode"
+  ],
+  "author": "MasuRii",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MasuRii/pi-tool-display.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MasuRii/pi-tool-display/issues"
+  },
+  "homepage": "https://github.com/MasuRii/pi-tool-display#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.64.0",
+    "@mariozechner/pi-tui": "^0.64.0"
+  },
+  "overrides": {
+    "file-type": ">=21.3.1"
+  }
+}

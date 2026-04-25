@@ -1,0 +1,15 @@
+{
+  "display": {
+    "includeBuiltins": false
+  },
+  "layout": {
+    "height": 24
+  },
+  "keybindings": {
+    "toggle": "ctrl+/",
+    "scrollUp": "shift+up",
+    "scrollDown": "shift+down",
+    "scrollPageUp": null,
+    "scrollPageDown": null
+  }
+}
