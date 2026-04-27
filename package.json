@@ -25,13 +25,13 @@
     "latchkey": "^2.5.5",
     "pi-codex-web-search": "^0.1.5",
     "pi-command-center": "^0.1.4",
+    "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git",
     "pi-continuous-learning": "^0.9.0",
     "pi-hide-messages": "^0.1.1",
     "pi-interactive-shell": "^0.10.1",
-    "pi-poe-provider": "git+https://github.com/xXJSONDeruloXx/pi-poe-provider.git",
+    "pi-poe-provider": "github:xXJSONDeruloXx/pi-poe-provider",
     "pi-stash": "^0.2.0",
     "pi-tool-display": "^0.3.1",
-    "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git",
     "yaml": "^2.8.1"
   },
   "bundledDependencies": [
@@ -84,5 +84,22 @@
   },
   "scripts": {
     "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py"
-  }
+  },
+  "bundleDependencies": [
+    "@0xkobold/pi-autoupdate",
+    "@aliou/pi-processes",
+    "@ifi/pi-extension-subagents",
+    "@tmustier/pi-files-widget",
+    "@tmustier/pi-ralph-wiggum",
+    "latchkey",
+    "pi-codex-web-search",
+    "pi-command-center",
+    "pi-continuous-learning",
+    "pi-hide-messages",
+    "pi-interactive-shell",
+    "pi-poe-provider",
+    "pi-stash",
+    "pi-tool-display",
+    "pi-computer-use"
+  ]
 }
