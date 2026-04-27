@@ -4483,7 +4483,7 @@ function shouldExclude(model) {
 }
 function normalizeModel(model) {
   const pricing = model.pricing;
-  const contextWindow = model.context_window?.context_length ?? 128e3;
+  const contextWindow = model.context_window?.context_length ?? 2e5;
   const maxTokens = model.context_window?.max_output_tokens ?? 4096;
   return {
     id: model.id,
