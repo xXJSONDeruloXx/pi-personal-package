@@ -37,6 +37,7 @@ pi update
 - `extensions/auto-title.ts`
 - `extensions/copilot-usage-widget.ts`
 - `extensions/diff.ts`
+- `extensions/kurt-klaw-banner.ts` (Kurt Klaw startup banner — first message in chat)
 - `extensions/notifications.ts`
 - `extensions/upstream-master-diff-footer.ts`
 

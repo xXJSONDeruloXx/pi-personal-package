@@ -29,7 +29,6 @@
     "pi-continuous-learning": "^0.9.0",
     "pi-hide-messages": "^0.1.1",
     "pi-interactive-shell": "^0.10.1",
-    "pi-poe-provider": "github:xXJSONDeruloXx/pi-poe-provider",
     "pi-stash": "^0.2.0",
     "pi-tool-display": "^0.3.1",
     "yaml": "^2.8.1"
@@ -46,7 +45,6 @@
     "pi-continuous-learning",
     "pi-hide-messages",
     "pi-interactive-shell",
-    "pi-poe-provider",
     "pi-stash",
     "pi-tool-display",
     "pi-computer-use"
@@ -69,7 +67,7 @@
       "./node_modules/pi-continuous-learning/dist/index.js",
       "./node_modules/pi-hide-messages/index.ts",
       "./node_modules/pi-interactive-shell/index.ts",
-      "./node_modules/pi-poe-provider/src/index.ts",
+      "./extensions/poe-provider/index.ts",
       "./node_modules/pi-stash/src/stash.ts",
       "./node_modules/pi-tool-display/index.ts",
       "./node_modules/pi-computer-use/src/index.ts"
@@ -97,7 +95,6 @@
     "pi-continuous-learning",
     "pi-hide-messages",
     "pi-interactive-shell",
-    "pi-poe-provider",
     "pi-stash",
     "pi-tool-display",
     "pi-computer-use"
