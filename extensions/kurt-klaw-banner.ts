@@ -47,8 +47,6 @@ export default function kurtKlawBanner(pi: ExtensionAPI) {
 			theme.fg("success", LOGO[10]),
 			theme.fg("warning", LOGO[11]),
 			theme.fg("warning", LOGO[12]),
-			"",
-			theme.fg("muted", "pi personal package"),
 		];
 		return new Text(lines.join("\n"), 0, 0);
 	});
