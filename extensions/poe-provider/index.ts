@@ -537,8 +537,7 @@ export default async function (pi: ExtensionAPI) {
 					type: "text",
 					text: results.length === 0
 						? query ? `No Poe models matching "${params.query}"` : "No Poe models found"
-						: `Poe models (${results.length}${matches.length > limit ? ` of ${matches.length}` : ""}):
-` +
+						: `Poe models (${results.length}${matches.length > limit ? ` of ${matches.length}` : ""}):\n` +
 							results.map((r) => {
 								const tags: string[] = [];
 								if (r.reasoning) tags.push("reasoning");
@@ -546,14 +545,13 @@ export default async function (pi: ExtensionAPI) {
 								if (r.supportedFeatures.includes("web_search")) tags.push("web_search");
 								const tagStr = tags.length ? ` ${tags.join(",")}` : "";
 								return `  ${r.name} (${r.id}) [${r.owner ?? "unknown"}]${tagStr}`;
-							}).join("
-"),
+							}).join("\n"),
 				}],
 				details: { models: results, total: matches.length },
+
 			};
 		},
 	});
-
 	pi.registerTool({
 		name: "poe_get_usage_history",
 		label: "Poe Usage History",
