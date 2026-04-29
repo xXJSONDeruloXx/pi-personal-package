@@ -30,9 +30,13 @@ export interface PoeModel {
 		max_output_tokens?: number;
 	};
 	pricing?: {
-		input_tokens?: number;
-		output_tokens?: number;
-		[key: string]: number | undefined;
+		prompt?: number | string | null;
+		completion?: number | string | null;
+		image?: number | string | null;
+		request?: number | string | null;
+		input_cache_read?: number | string | null;
+		input_cache_write?: number | string | null;
+		[key: string]: unknown;
 	};
 	reasoning?: boolean;
 	/** Additional fields we don't strictly map but preserve for debugging */
@@ -48,23 +52,54 @@ export interface PoeModelsResponse {
 /** Response from GET /usage/current_balance */
 export interface PoeBalanceResponse {
 	current_point_balance: number;
+	plan_points_balance?: number;
+	addon_point_balance?: number;
+	plan_balance_usd?: string;
+	addon_balance_usd?: string;
+	total_balance_usd?: string;
+	/** Microseconds since epoch */
+	points_cycle_start_time?: number;
+	/** Microseconds since epoch */
+	next_daily_grant_time?: number;
+	/** Microseconds since epoch */
+	next_monthly_grant_time?: number;
+	next_daily_grant_amount?: number;
+	next_monthly_grant_amount?: number;
+	auto_recharge?: {
+		enabled: boolean;
+		status: string;
+		threshold_points: number;
+		threshold_usd: string;
+		refill_points: number;
+		refill_usd: string;
+		last_recharge_failure_time: number | null;
+	};
 }
 
 /** Single entry from GET /usage/points_history */
 export interface PoeHistoryEntry {
 	bot_name: string;
+	/** Microseconds since epoch (not seconds!) */
 	creation_time: number;
 	query_id: string;
 	cost_points: number;
-	cost_usd: number;
-	cost_breakdown_in_points?: Record<string, number>;
+	cost_usd: number | string;
+	/** Keys are categories like "Input", "Output", "Cache write", "Cache discount", "Total"; values are strings */
+	cost_breakdown_in_points?: Record<string, string>;
 	usage_type: string;
+	/** Present when usage_type == "Chat" */
+	chat_name?: string;
+	/** Present when usage_type == "Canvas App" */
+	canvas_tab_name?: string;
+	/** Present when usage_type == "API" */
+	api_key_name?: string;
 }
 
 /** Response from GET /usage/points_history */
 export interface PoeHistoryResponse {
 	data: PoeHistoryEntry[];
 	has_more: boolean;
+	length?: number;
 }
 
 /** Token exchange response from POST /token (OAuth) */

@@ -51,7 +51,7 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	}
 
 	const normalized = normalizeModels(cachedModels);
-	const { chatModels, responseModels } = categorizeModels(normalized);
+	const { chatModels, responseModels } = categorizeModels(normalized, cachedModels);
 
 	// Register the main poe provider (openai-completions) with all chat-capable models
 	if (chatModels.length > 0) {
@@ -122,16 +122,20 @@ function formatBalance(balance: number): string {
 }
 
 function formatHistoryEntry(entry: PoeHistoryEntry, idx: number): string {
-	const time = new Date(entry.creation_time * 1000).toLocaleString();
+	// Poe returns creation_time in microseconds, convert to milliseconds for Date
+	const time = new Date(entry.creation_time / 1000).toLocaleString();
 	const cost = entry.cost_points.toFixed(1);
-	const usd = entry.cost_usd !== undefined ? ` ($${entry.cost_usd.toFixed(4)})` : "";
-	return `${idx + 1}. ${entry.bot_name} — ${cost} pts${usd} — ${entry.usage_type} — ${time}`;
+	const costUsd = typeof entry.cost_usd === "number" ? entry.cost_usd : parseFloat(String(entry.cost_usd ?? 0));
+	const usd = costUsd !== 0 ? ` ($${costUsd.toFixed(4)})` : "";
+	const apiKeyTag = entry.api_key_name ? ` via ${entry.api_key_name}` : "";
+	return `${idx + 1}. ${entry.bot_name} — ${cost} pts${usd} — ${entry.usage_type}${apiKeyTag} — ${time}`;
 }
 
 /** Format a per-turn cost line for the footer/widget */
 function formatTurnCost(entry: PoeHistoryEntry): string {
 	const cost = entry.cost_points.toFixed(1);
-	const usd = entry.cost_usd !== undefined ? ` ($${entry.cost_usd.toFixed(4)})` : "";
+	const costUsd = typeof entry.cost_usd === "number" ? entry.cost_usd : parseFloat(String(entry.cost_usd ?? 0));
+	const usd = costUsd !== 0 ? ` ($${costUsd.toFixed(4)})` : "";
 	return `${entry.bot_name} ${cost} pts${usd}`;
 }
 
@@ -165,11 +169,35 @@ export default async function (pi: ExtensionAPI) {
 
 			switch (sub) {
 				case "balance": {
-					const balance = await fetchBalance(ctx.signal);
-					if (balance === null) {
-						ctx.ui.notify("Poe balance unavailable (no API key or network error)", "warning");
-					} else {
-						ctx.ui.notify(formatBalance(balance), "info");
+					const key = resolveApiKey();
+					if (!key) {
+						ctx.ui.notify("Poe balance unavailable (no API key)", "warning");
+						break;
+					}
+					try {
+						client.setApiKey(key);
+						const response = await client.getBalance(ctx.signal);
+						cachedBalance = response.current_point_balance;
+						balanceFetchedAt = Date.now();
+
+						let msg = formatBalance(cachedBalance);
+						if (response.plan_points_balance !== undefined) {
+							msg += ` (plan: ${response.plan_points_balance.toLocaleString()}`;
+							if (response.addon_point_balance !== undefined) {
+							msg += `, add-on: ${response.addon_point_balance.toLocaleString()}`;
+							}
+							msg += `)`;
+						}
+					if (response.total_balance_usd) {
+						msg += ` ≈ $${response.total_balance_usd}`;
+						}
+					if (response.next_daily_grant_time && response.next_daily_grant_amount) {
+						const grantTime = new Date(response.next_daily_grant_time / 1000).toLocaleString();
+						msg += `\nNext daily grant: +${response.next_daily_grant_amount.toLocaleString()} pts at ${grantTime}`;
+						}
+					ctx.ui.notify(msg, "info");
+					} catch {
+						ctx.ui.notify("Poe balance unavailable (network error)", "warning");
 					}
 					break;
 				}
@@ -224,10 +252,22 @@ export default async function (pi: ExtensionAPI) {
 						const lines = matches.slice(0, 30).map((m) => {
 							const name = m.metadata?.display_name ?? m.id;
 							const owner = m.owned_by ? ` [${m.owned_by}]` : "";
+							const endpoints = (m.supported_endpoints as string[] | undefined)?.filter((ep) =>
+								ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages"
+							).join(", ") ?? "";
 							const pricing = m.pricing
-								? ` in:${(m.pricing.input_tokens ?? 0).toExponential(2)}/tok out:${(m.pricing.output_tokens ?? 0).toExponential(2)}/tok`
-								: "";
-							return `  ${name}${owner}${pricing}`;
+								? (() => {
+									const p = m.pricing as Record<string, unknown>;
+									const prompt = p["prompt"] != null ? Number(p["prompt"]) : null;
+									const completion = p["completion"] != null ? Number(p["completion"]) : null;
+									if (prompt || completion) {
+										return ` in:$${(prompt! * 1e6).toFixed(2)}/M out:$${(completion! * 1e6).toFixed(2)}/M`;
+									}
+									return " free";
+								})()
+								: " free";
+							const epTag = endpoints ? ` [${endpoints}]` : "";
+							return `  ${name}${owner}${pricing}${epTag}`;
 						});
 						const total = query ? matches.length : cachedModels.length;
 						const header = query
@@ -363,10 +403,25 @@ export default async function (pi: ExtensionAPI) {
 						ctx.ui.notify("No Poe API key configured. Use /login poe or set POE_API_KEY.", "warning");
 						break;
 					}
-					const balance = await fetchBalance(ctx.signal);
-					const balanceMsg = balance !== null ? formatBalance(balance) : "balance unavailable";
-					const source = process.env.POE_API_KEY ? "env (POE_API_KEY)" : "OAuth /login poe";
-					ctx.ui.notify(`Poe account: ${balanceMsg}\nKey source: ${source}`, "info");
+					try {
+						client.setApiKey(key);
+						const balResp = await client.getBalance(ctx.signal);
+						cachedBalance = balResp.current_point_balance;
+						balanceFetchedAt = Date.now();
+
+						const source = process.env.POE_API_KEY ? "env (POE_API_KEY)" : "OAuth /login poe";
+						let msg = `Poe account: ${formatBalance(cachedBalance)}`;
+						if (balResp.plan_points_balance !== undefined) msg += `\n  Plan: ${balResp.plan_points_balance.toLocaleString()} pts`;
+						if (balResp.addon_point_balance !== undefined) msg += `, Add-on: ${balResp.addon_point_balance.toLocaleString()} pts`;
+						if (balResp.total_balance_usd) msg += ` ($${balResp.total_balance_usd})`;
+						msg += `\n  Key source: ${source}`;
+						if (balResp.auto_recharge) {
+							msg += `\n  Auto-recharge: ${balResp.auto_recharge.enabled ? `on (threshold: ${balResp.auto_recharge.threshold_points} pts, refill: ${balResp.auto_recharge.refill_points} pts)` : "off"}`;
+						}
+						ctx.ui.notify(msg, "info");
+					} catch {
+						ctx.ui.notify("Failed to fetch account info", "error");
+					}
 					break;
 				}
 
@@ -467,10 +522,14 @@ export default async function (pi: ExtensionAPI) {
 				id: m.id,
 				name: m.metadata?.display_name ?? m.id,
 				owner: m.owned_by,
-				reasoning: m.reasoning,
-				contextWindow: m.context_window?.context_length,
+				reasoning: typeof m.reasoning === "object" && m.reasoning !== null ? (m.reasoning as { supports_reasoning_effort?: boolean }).supports_reasoning_effort === true : !!m.reasoning,
+				contextWindow: m.context_window?.context_length ?? m.context_length,
 				maxOutputTokens: m.context_window?.max_output_tokens,
 				inputModalities: m.architecture?.input_modalities,
+				supportedEndpoints: (m.supported_endpoints as string[] | undefined)?.filter((ep) =>
+					ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages"
+				) ?? [],
+				supportedFeatures: (m.supported_features as string[] | undefined) ?? [],
 			}));
 
 			return {
@@ -478,8 +537,17 @@ export default async function (pi: ExtensionAPI) {
 					type: "text",
 					text: results.length === 0
 						? query ? `No Poe models matching "${params.query}"` : "No Poe models found"
-						: `Poe models (${results.length}${matches.length > limit ? ` of ${matches.length}` : ""}):\n` +
-							results.map((r) => `  ${r.name} (${r.id}) [${r.owner ?? "unknown"}]${r.reasoning ? " reasoning" : ""}`).join("\n"),
+						: `Poe models (${results.length}${matches.length > limit ? ` of ${matches.length}` : ""}):
+` +
+							results.map((r) => {
+								const tags: string[] = [];
+								if (r.reasoning) tags.push("reasoning");
+								if (r.supportedFeatures.includes("tools")) tags.push("tools");
+								if (r.supportedFeatures.includes("web_search")) tags.push("web_search");
+								const tagStr = tags.length ? ` ${tags.join(",")}` : "";
+								return `  ${r.name} (${r.id}) [${r.owner ?? "unknown"}]${tagStr}`;
+							}).join("
+"),
 				}],
 				details: { models: results, total: matches.length },
 			};
@@ -521,7 +589,7 @@ export default async function (pi: ExtensionAPI) {
 				}
 
 				const lines = response.data.map((e, i) =>
-					`${i + 1}. ${e.bot_name} — ${e.cost_points.toFixed(1)} pts — ${e.usage_type} — ${new Date(e.creation_time * 1000).toLocaleString()}`
+					`${i + 1}. ${e.bot_name} — ${e.cost_points.toFixed(1)} pts — ${e.usage_type} — ${new Date(e.creation_time / 1000).toLocaleString()}`
 				);
 				const totalPts = response.data.reduce((sum, e) => sum + e.cost_points, 0);
 

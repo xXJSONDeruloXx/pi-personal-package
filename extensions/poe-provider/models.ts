@@ -55,6 +55,8 @@ const EXCLUDE_PATTERNS = [
 	"deepreasoning", "assistant", "interpreter", "manus",
 	"happyhorse", "phoenix", "tako", "claude-code",
 	"deepseek-prover", "gpt-researcher",
+	// Models with no /v1/chat/completions or /v1/responses endpoint (not callable via API)
+	"nano-banana",
 ];
 
 // ---------------------------------------------------------------------------
@@ -81,10 +83,12 @@ function displayName(model: PoeModel): string {
 		.join(" ");
 }
 
-/** Convert per-token USD pricing to per-million-token cost */
-function tokenCostToPerMillion(perToken?: number): number {
+/** Convert per-token USD pricing (string or number) to per-million-token cost */
+function tokenCostToPerMillion(perToken?: number | string | null): number {
 	if (perToken === undefined || perToken === null) return 0;
-	return perToken * 1_000_000;
+	const num = typeof perToken === "string" ? parseFloat(perToken) : perToken;
+	if (isNaN(num)) return 0;
+	return num * 1_000_000;
 }
 
 /** Determine input modalities for a Poe model */
@@ -128,7 +132,18 @@ function inferReasoning(model: PoeModel): boolean {
 
 /** Check if a model should be excluded from provider registration */
 function shouldExclude(model: PoeModel): boolean {
-	return matchesAny(model.id, EXCLUDE_PATTERNS);
+	if (matchesAny(model.id, EXCLUDE_PATTERNS)) return true;
+
+	// Exclude models that have no chat/responses/messages endpoint
+	const endpoints: string[] = model.supported_endpoints ?? [];
+	if (endpoints.length > 0) {
+		const usable = endpoints.some((ep) =>
+			ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages"
+		);
+		if (!usable) return true;
+	}
+
+	return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,7 +153,7 @@ function shouldExclude(model: PoeModel): boolean {
 /** Convert a raw Poe model into a pi ProviderModelConfig */
 export function normalizeModel(model: PoeModel): ProviderModelConfig {
 	const pricing = model.pricing;
-	const contextWindow = model.context_window?.context_length ?? 200000;
+	const contextWindow = model.context_window?.context_length ?? model.context_length ?? 200000;
 	const maxTokens = model.context_window?.max_output_tokens ?? 4096;
 
 	return {
@@ -147,10 +162,10 @@ export function normalizeModel(model: PoeModel): ProviderModelConfig {
 		reasoning: inferReasoning(model),
 		input: inferInputCapabilities(model),
 		cost: {
-			input: tokenCostToPerMillion(pricing?.input_tokens),
-			output: tokenCostToPerMillion(pricing?.output_tokens),
-			cacheRead: 0,
-			cacheWrite: 0,
+			input: tokenCostToPerMillion(pricing?.prompt),
+			output: tokenCostToPerMillion(pricing?.completion),
+			cacheRead: tokenCostToPerMillion(pricing?.input_cache_read),
+			cacheWrite: tokenCostToPerMillion(pricing?.input_cache_write),
 		},
 		contextWindow,
 		maxTokens,
@@ -181,18 +196,39 @@ export function normalizeModels(models: PoeModel[]): ProviderModelConfig[] {
 }
 
 /**
- * Split models into two categories:
+ * Split models into two categories based on supported_endpoints:
  * - chat-compatible (suitable for openai-completions)
- * - responses-capable (suitable for openai-responses, has reasoning/tools)
+ * - responses-capable (suitable for openai-responses)
  *
- * Most models go into both lists. The responses list is a subset that
- * explicitly supports reasoning, tool use, or structured output.
+ * Uses the model's supported_endpoints field when available.
+ * Falls back to reasoning flag for models that don't declare endpoints.
  */
-export function categorizeModels(models: ProviderModelConfig[]): {
+export function categorizeModels(models: ProviderModelConfig[], rawModels?: PoeModel[]): {
 	chatModels: ProviderModelConfig[];
 	responseModels: ProviderModelConfig[];
 } {
-	const chatModels = models;
-	const responseModels = models.filter((m) => m.reasoning);
+	// Build a lookup from raw model data if available
+	const rawLookup = new Map<string, PoeModel>();
+	if (rawModels) {
+		for (const m of rawModels) rawLookup.set(m.id, m);
+	}
+
+	const chatModels = models.filter((m) => {
+		const raw = rawLookup.get(m.id);
+		if (!raw) return true; // include if no raw data
+		const endpoints: string[] = raw.supported_endpoints ?? [];
+		// Include if has chat/completions OR messages (Anthropic compat) endpoint, or no endpoint data
+		if (endpoints.length === 0) return true;
+		return endpoints.some((ep) => ep === "/v1/chat/completions" || ep === "/v1/messages");
+	});
+
+	const responseModels = models.filter((m) => {
+		const raw = rawLookup.get(m.id);
+		if (!raw) return m.reasoning; // fallback to reasoning flag
+		const endpoints: string[] = raw.supported_endpoints ?? [];
+		if (endpoints.length === 0) return m.reasoning; // no data, use reasoning
+		return endpoints.some((ep) => ep === "/v1/responses");
+	});
+
 	return { chatModels, responseModels };
 }
