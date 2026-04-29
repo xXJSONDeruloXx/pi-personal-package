@@ -152,9 +152,9 @@ export default async function (pi: ExtensionAPI) {
 	// -------------------------------------------------------------------
 
 	pi.registerCommand("poe", {
-		description: "Poe integration: balance, history, models, refresh, account",
+		description: "Poe integration: balance, history, models, free, refresh, account",
 		getArgumentCompletions(prefix: string) {
-			const subs = ["balance", "history", "models", "refresh", "account", "login", "logout"];
+			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout"];
 			return subs
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s }));
@@ -238,6 +238,110 @@ export default async function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "free": {
+					// Refresh if stale or empty
+					if (cachedModels.length === 0 || Date.now() - modelsFetchedAt > MODELS_CACHE_TTL) {
+						try {
+							const response = await client.listModels(ctx.signal);
+							cachedModels = response.data ?? [];
+							modelsFetchedAt = Date.now();
+						} catch (err) {
+							ctx.ui.notify(`Failed to fetch models: ${err instanceof Error ? err.message : err}`, "error");
+							break;
+						}
+					}
+
+					const query = rest.toLowerCase();
+
+					// Classify models by pricing
+					const confirmedFree: Array<{ id: string; name: string; owner?: string }> = [];
+					const likelyFree: Array<{ id: string; name: string; owner?: string }> = [];
+					let paidCount = 0;
+
+					for (const m of cachedModels) {
+						const p = m.pricing;
+						const name = m.metadata?.display_name ?? m.id;
+						const owner = m.owned_by;
+
+						if (p == null) {
+							// pricing=null — likely free on the Poe app, but ambiguous for API
+							likelyFree.push({ id: m.id, name, owner });
+						} else if (typeof p === "object") {
+							// Check all pricing fields for zero cost
+							const fields = ["prompt", "completion", "image", "request", "input_cache_read", "input_cache_write"];
+							let allZero = true;
+							for (const field of fields) {
+								const val = (p as Record<string, unknown>)[field];
+								if (val != null && Number(val) !== 0) {
+									allZero = false;
+									break;
+								}
+							}
+							if (allZero) {
+								confirmedFree.push({ id: m.id, name, owner });
+							} else {
+								paidCount++;
+							}
+						} else {
+							paidCount++;
+						}
+					}
+
+					// Apply search filter if provided
+					const filterFn = (m: { id: string; name: string; owner?: string }) =>
+						!query ||
+						m.id.toLowerCase().includes(query) ||
+						m.name.toLowerCase().includes(query) ||
+						(m.owner ?? "").toLowerCase().includes(query);
+
+					const filteredConfirmed = confirmedFree.filter(filterFn);
+					const filteredLikely = likelyFree.filter(filterFn);
+
+					// Build output
+					let output = `Poe model catalog: ${cachedModels.length} models total\n`;
+
+					if (filteredConfirmed.length > 0) {
+						output += `\n✅ Confirmed free (all pricing fields = $0):\n`;
+						for (const m of filteredConfirmed) {
+							const ownerTag = m.owner ? ` [${m.owner}]` : "";
+							output += `  ${m.name} (${m.id})${ownerTag}\n`;
+						}
+					}
+
+					if (filteredLikely.length > 0) {
+						// Group likely-free models by owner
+						const byOwner = new Map<string, Array<{ id: string; name: string }>>();
+						for (const m of filteredLikely) {
+							const key = m.owner ?? "unknown";
+							if (!byOwner.has(key)) byOwner.set(key, []);
+							byOwner.get(key)!.push(m);
+						}
+
+						output += `\n🟡 Likely free (pricing=null — free on Poe app, API cost ambiguous):\n`;
+						// Sort owners by count descending
+						const sortedOwners = [...byOwner.entries()].sort((a, b) => b[1].length - a[1].length);
+						for (const [owner, models] of sortedOwners) {
+							if (query) {
+								// Show individually when filtered
+								for (const m of models) {
+									output += `  ${m.name} (${m.id})\n`;
+								}
+							} else {
+								// Summarize by owner, list up to 5 notable models
+								const notable = models.slice(0, 5).map((m) => m.id).join(", ");
+								const suffix = models.length > 5 ? `, … (+${models.length - 5} more)` : "";
+								output += `  ${owner}: ${notable}${suffix}\n`;
+							}
+						}
+						output += `  Total: ${filteredLikely.length} models\n`;
+					}
+
+					output += `\n💰 Paid (non-zero pricing): ${paidCount} models (skipped)`;
+
+					ctx.ui.notify(output, "info");
+					break;
+				}
+
 				case "refresh": {
 					// Force refresh models and balance
 					try {
@@ -289,7 +393,7 @@ export default async function (pi: ExtensionAPI) {
 
 				default: {
 					ctx.ui.notify(
-						"Poe commands: /poe balance | history [N] | models [query] | refresh | account | login | logout",
+						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout",
 						"info"
 					);
 					break;
