@@ -81,7 +81,9 @@
     ]
   },
   "scripts": {
-    "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py"
+    "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py",
+    "test": "vitest run extensions/poe-provider/",
+    "test:watch": "vitest extensions/poe-provider/"
   },
   "bundleDependencies": [
     "@0xkobold/pi-autoupdate",
@@ -98,5 +100,8 @@
     "pi-stash",
     "pi-tool-display",
     "pi-computer-use"
-  ]
+  ],
+  "devDependencies": {
+    "vitest": "^4.1.5"
+  }
 }
