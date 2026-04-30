@@ -1,0 +1,8 @@
+{
+  "name": "api-key-scraper",
+  "version": "1.0.0",
+  "description": "Scans GitHub for leaked API keys and validates them",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
