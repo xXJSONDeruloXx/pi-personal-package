@@ -1,7 +1,7 @@
 {
   "name": "api-key-scraper",
-  "version": "1.0.0",
-  "description": "Scans GitHub for leaked API keys and validates them",
+  "version": "2.0.0",
+  "description": "Enhanced GitHub secret scanner with Events API, Code Search, deep history, 20+ secret patterns, live verification, caching, and notifications",
   "pi": {
     "extensions": ["./index.ts"]
   }
