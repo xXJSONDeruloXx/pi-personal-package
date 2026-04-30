@@ -112,11 +112,6 @@ function inferInputCapabilities(model: PoeModel): ("text" | "image")[] {
 	return input;
 }
 
-/** Known models that support tool use (beyond what Poe reports) */
-const KNOWN_TOOL_MODELS = [
-	"glm-5",    // GLM 5.x family supports tools but Poe doesn't always report it
-];
-
 /** Infer whether a model supports reasoning/extended thinking */
 function inferReasoning(model: PoeModel): boolean {
 	// Explicit flag takes priority — Poe returns `reasoning: { required: boolean }` or `reasoning: boolean`
@@ -132,20 +127,51 @@ function inferReasoning(model: PoeModel): boolean {
 	return matchesAny(model.id, REASONING_PATTERNS);
 }
 
-/** Check if a model should be excluded from provider registration */
-function shouldExclude(model: PoeModel): boolean {
-	if (matchesAny(model.id, EXCLUDE_PATTERNS)) return true;
+function hasTextOutput(model: PoeModel): boolean {
+	const outputs = model.architecture?.output_modalities;
+	return !Array.isArray(outputs) || outputs.some((modality) => modality.includes("text"));
+}
 
-	// Exclude models that have no chat/responses/messages endpoint
-	const endpoints: string[] = model.supported_endpoints ?? [];
-	if (endpoints.length > 0) {
-		const usable = endpoints.some((ep) =>
-			ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages"
-		);
-		if (!usable) return true;
+function hasToolSupport(model: PoeModel): boolean {
+	// Current Poe catalog responses include supported_features for most models.
+	// When present, trust it: [] means the API model rejects native tools.
+	const features = model.supported_features;
+	if (Array.isArray(features)) return features.includes("tools");
+
+	// Legacy fallback for old fixtures/catalog snapshots that predate supported_features.
+	return true;
+}
+
+function hasUsableChatLikeEndpoint(model: PoeModel): boolean {
+	const endpoints = model.supported_endpoints;
+	if (Array.isArray(endpoints) && endpoints.length > 0) {
+		return endpoints.some((ep) => ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages");
 	}
+	return true;
+}
 
-	return false;
+function hasUsableChatCompletionEndpoint(model: PoeModel): boolean {
+	const endpoints = model.supported_endpoints;
+	if (Array.isArray(endpoints) && endpoints.length > 0) {
+		return endpoints.some((ep) => ep === "/v1/chat/completions" || ep === "/v1/messages");
+	}
+	return true;
+}
+
+/** Check if a model should be excluded from native provider registration. */
+function shouldExclude(model: PoeModel): boolean {
+	return matchesAny(model.id, EXCLUDE_PATTERNS)
+		|| !hasTextOutput(model)
+		|| !hasToolSupport(model)
+		|| !hasUsableChatLikeEndpoint(model);
+}
+
+/** Check if a model should be excluded from the experimental emulated-tools provider. */
+function shouldExcludeFromEmulated(model: PoeModel): boolean {
+	return matchesAny(model.id, EXCLUDE_PATTERNS)
+		|| !hasTextOutput(model)
+		|| hasToolSupport(model)
+		|| !hasUsableChatCompletionEndpoint(model);
 }
 
 // ---------------------------------------------------------------------------
@@ -186,22 +212,32 @@ export function normalizeModel(model: PoeModel): ProviderModelConfig {
 	};
 }
 
-/**
- * Filter and normalize the raw Poe model list.
- * Excludes video/audio generation models and deduplicates.
- */
-export function normalizeModels(models: PoeModel[]): ProviderModelConfig[] {
+/** Filter and normalize the raw Poe model list with a caller-provided exclusion predicate. */
+function normalizeFilteredModels(models: PoeModel[], exclude: (model: PoeModel) => boolean): ProviderModelConfig[] {
 	const seen = new Set<string>();
 	const result: ProviderModelConfig[] = [];
 
 	for (const model of models) {
-		if (shouldExclude(model)) continue;
+		if (exclude(model)) continue;
 		if (seen.has(model.id)) continue;
 		seen.add(model.id);
 		result.push(normalizeModel(model));
 	}
 
 	return result;
+}
+
+/**
+ * Filter and normalize native-tool-capable Poe models.
+ * Excludes media/utility models and chat models that explicitly lack tool support.
+ */
+export function normalizeModels(models: PoeModel[]): ProviderModelConfig[] {
+	return normalizeFilteredModels(models, shouldExclude);
+}
+
+/** Normalize non-native-tool chat models for the experimental poe-emulated provider. */
+export function normalizeEmulatedModels(models: PoeModel[]): ProviderModelConfig[] {
+	return normalizeFilteredModels(models, shouldExcludeFromEmulated);
 }
 
 /**

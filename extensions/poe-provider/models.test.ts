@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
 	normalizeModel,
 	normalizeModels,
+	normalizeEmulatedModels,
 	categorizeModels,
 } from "./models.js";
 import type { PoeModel } from "./poe-client.js";
@@ -289,7 +290,7 @@ describe("shouldExclude", () => {
 		expect(result).toHaveLength(0);
 	});
 
-	it("does not exclude chat models with supported endpoints", () => {
+	it("does not exclude chat models with supported endpoints and legacy feature data", () => {
 		const result = normalizeModels([
 			makeModel({
 				id: "my-chat-model",
@@ -299,12 +300,25 @@ describe("shouldExclude", () => {
 		expect(result).toHaveLength(1);
 	});
 
-	it("includes models with no endpoint data (assumed compatible)", () => {
+	it("excludes explicit non-tool chat models from the native provider", () => {
 		const result = normalizeModels([
-			makeModel({ id: "some-free-model", supported_endpoints: [] }),
+			makeModel({ id: "some-free-model", supported_endpoints: [], supported_features: [] }),
 		]);
-		// Not in EXCLUDE_PATTERNS, and empty endpoints is treated as "unknown, include"
+		expect(result).toHaveLength(0);
+	});
+
+	it("puts explicit non-tool chat models in the emulated provider", () => {
+		const result = normalizeEmulatedModels([
+			makeModel({ id: "some-free-model", supported_endpoints: [], supported_features: [] }),
+		]);
 		expect(result).toHaveLength(1);
+	});
+
+	it("does not put native tool models in the emulated provider", () => {
+		const result = normalizeEmulatedModels([
+			makeModel({ id: "tool-model", supported_endpoints: ["/v1/chat/completions"], supported_features: ["tools"] }),
+		]);
+		expect(result).toHaveLength(0);
 	});
 
 	it("deduplicates models by id", () => {

@@ -10,10 +10,11 @@
  * - Custom bot registration for community bots not in catalog
  */
 
-import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 import { PoeClient, type PoeModel, type PoeHistoryEntry } from "./poe-client.js";
-import { normalizeModels, categorizeModels } from "./models.js";
+import { normalizeModels, normalizeEmulatedModels, categorizeModels } from "./models.js";
+import { streamPoeEmulatedTools } from "./poe-emulated.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
 import { loadCustomModels, saveCustomModel } from "./custom-models.js";
 
@@ -52,13 +53,9 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 		return;
 	}
 
-	const normalized = normalizeModels(cachedModels);
-	const { chatModels, responseModels } = categorizeModels(normalized, cachedModels);
-
-	// Load custom/community bot IDs that users have added
+	// Load custom/community bot IDs that users have added. Treat custom bots as
+	// emulated by default because Poe does not expose their tool-capability metadata.
 	const customModelIds = await loadCustomModels();
-
-	// Add custom models to cachedModels so they appear in /poe models searches
 	const existingCachedIds = new Set(cachedModels.map((m) => m.id));
 	for (const modelId of customModelIds) {
 		if (!existingCachedIds.has(modelId)) {
@@ -74,38 +71,22 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 		}
 	}
 
-	// Merge custom models into the chat models list (avoid duplicates)
-	const existingIds = new Set(chatModels.map((m) => m.id));
-	const customModels: ProviderModelConfig[] = customModelIds
-		.filter((id) => !existingIds.has(id))
-		.map((modelId) => ({
-			id: modelId,
-			name: modelId,
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 4096,
-			compat: {
-				supportsDeveloperRole: false,
-				supportsReasoningEffort: false,
-				maxTokensField: "max_tokens",
-				supportsStrictMode: false,
-			},
-		}));
-	const allChatModels = [...chatModels, ...customModels];
+	const normalized = normalizeModels(cachedModels);
+	const emulatedNormalized = normalizeEmulatedModels(cachedModels);
+	const { chatModels, responseModels } = categorizeModels(normalized, cachedModels);
+	const { chatModels: emulatedChatModels } = categorizeModels(emulatedNormalized, cachedModels);
 
 	if (customModelIds.length > 0) {
 		console.log(`[poe] Loaded ${customModelIds.length} custom bot(s): ${customModelIds.join(", ")}`);
 	}
 
-	// Register the main poe provider (openai-completions) with all chat-capable models
-	if (allChatModels.length > 0) {
+	// Register the main poe provider (openai-completions) with native-tool-capable chat models.
+	if (chatModels.length > 0) {
 		pi.registerProvider("poe", {
 			baseUrl: "https://api.poe.com/v1",
 			apiKey: "POE_API_KEY",
 			api: "openai-completions",
-			models: allChatModels,
+			models: chatModels,
 			authHeader: true,
 			oauth: {
 				name: "Sign in with Poe",
@@ -113,6 +94,26 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 				refreshToken: refreshPoeToken,
 				getApiKey: getPoeApiKey,
 			},
+		});
+	}
+
+	// Experimental provider for Poe chat models that reject native tool calling.
+	// The custom stream handler converts pi tools to prompt instructions and parses
+	// model-emitted JSON back into pi tool calls, with validation and repair retries.
+	if (emulatedChatModels.length > 0) {
+		pi.registerProvider("poe-emulated", {
+			baseUrl: "https://api.poe.com/v1",
+			apiKey: "POE_API_KEY",
+			api: "openai-completions",
+			models: emulatedChatModels,
+			authHeader: true,
+			oauth: {
+				name: "Sign in with Poe",
+				login: (callbacks) => loginPoe(callbacks, client),
+				refreshToken: refreshPoeToken,
+				getApiKey: getPoeApiKey,
+			},
+			streamSimple: streamPoeEmulatedTools,
 		});
 	}
 

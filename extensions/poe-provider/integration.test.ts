@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeModel, normalizeModels, categorizeModels } from "./models.js";
+import { normalizeModel, normalizeModels, normalizeEmulatedModels, categorizeModels } from "./models.js";
 import type { PoeModel } from "./poe-client.js";
 
 // ---------------------------------------------------------------------------
@@ -221,6 +221,7 @@ describe("full pipeline", () => {
 				pricing: { prompt: null, completion: null, request: "0.00" },
 				reasoning: null,
 				supported_endpoints: [],
+				supported_features: [],
 			}),
 			// Video model — should be excluded
 			makeModel({
@@ -249,6 +250,7 @@ describe("full pipeline", () => {
 		];
 
 		const normalized = normalizeModels(rawModels);
+		const emulated = normalizeEmulatedModels(rawModels);
 		const { chatModels, responseModels } = categorizeModels(normalized, rawModels);
 
 		const ids = normalized.map((m) => m.id);
@@ -257,11 +259,11 @@ describe("full pipeline", () => {
 		expect(ids).not.toContain("elevenlabs-v3");
 		expect(ids).not.toContain("assistant"); // utility bot excluded
 		expect(ids).toContain("gpt-5.4");
-		expect(ids).toContain("gemma-4-31b-t");
+		expect(ids).not.toContain("gemma-4-31b-t"); // explicit non-tool model goes to emulated provider
+		expect(emulated.map((m) => m.id)).toContain("gemma-4-31b-t");
 
 		expect(chatModels.map((m) => m.id)).toContain("gpt-5.4");
-		expect(chatModels.map((m) => m.id)).toContain("gemma-4-31b-t");
+		expect(chatModels.map((m) => m.id)).not.toContain("gemma-4-31b-t");
 		expect(responseModels.map((m) => m.id)).toContain("gpt-5.4");
-		expect(responseModels.map((m) => m.id)).not.toContain("gemma-4-31b-t"); // no reasoning
 	});
 });

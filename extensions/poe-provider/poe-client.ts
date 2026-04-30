@@ -38,7 +38,13 @@ export interface PoeModel {
 		input_cache_write?: number | string | null;
 		[key: string]: unknown;
 	};
-	reasoning?: boolean;
+	reasoning?: boolean | {
+		budget?: number | null;
+		required?: boolean;
+		supports_reasoning_effort?: boolean;
+	} | null;
+	supported_endpoints?: string[];
+	supported_features?: string[];
 	/** Additional fields we don't strictly map but preserve for debugging */
 	[key: string]: unknown;
 }
