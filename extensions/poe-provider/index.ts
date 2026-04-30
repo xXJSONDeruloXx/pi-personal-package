@@ -117,31 +117,6 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 			},
 		});
 	}
-
-	// Load and register custom/community bot IDs that users have added
-	const customModels = await loadCustomModels();
-	for (const modelId of customModels) {
-		const customModel: ProviderModelConfig = {
-			id: modelId,
-			name: modelId,
-			reasoning: false,
-			input: ["text"],
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: 128000,
-			maxTokens: 4096,
-			compat: {
-				supportsDeveloperRole: false,
-				supportsReasoningEffort: false,
-				maxTokensField: "max_tokens",
-				supportsStrictMode: false,
-			},
-		};
-		pi.registerProviderModel("poe", customModel);
-	}
-
-	if (customModels.length > 0) {
-		console.log(`[poe] Registered ${customModels.length} custom bot(s): ${customModels.join(", ")}`);
-	}
 }
 
 // ---------------------------------------------------------------------------
