@@ -12,7 +12,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 import { PoeClient, type PoeModel, type PoeHistoryEntry } from "./poe-client.js";
-import { normalizeModels, categorizeModels } from "./models.js";
+import { normalizeModels, categorizeModels, isConfirmedFreeModel } from "./models.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,28 @@ function resolveApiKey(): string | undefined {
 // Provider registration
 // ---------------------------------------------------------------------------
 
+function registerPoeProvider(
+	pi: ExtensionAPI,
+	name: string,
+	api: "openai-completions" | "openai-responses",
+	models: ReturnType<typeof normalizeModels>,
+): void {
+	if (models.length === 0) return;
+	pi.registerProvider(name, {
+		baseUrl: "https://api.poe.com/v1",
+		apiKey: "POE_API_KEY",
+		api,
+		models,
+		authHeader: true,
+		oauth: {
+			name: "Sign in with Poe",
+			login: (callbacks) => loginPoe(callbacks, client),
+			refreshToken: refreshPoeToken,
+			getApiKey: getPoeApiKey,
+		},
+	});
+}
+
 async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	try {
 		const response = await client.listModels();
@@ -53,40 +75,17 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	const normalized = normalizeModels(cachedModels);
 	const { chatModels, responseModels } = categorizeModels(normalized, cachedModels);
 
-	// Register the main poe provider (openai-completions) with all chat-capable models
-	if (chatModels.length > 0) {
-		pi.registerProvider("poe", {
-			baseUrl: "https://api.poe.com/v1",
-			apiKey: "POE_API_KEY",
-			api: "openai-completions",
-			models: chatModels,
-			authHeader: true,
-			oauth: {
-				name: "Sign in with Poe",
-				login: (callbacks) => loginPoe(callbacks, client),
-				refreshToken: refreshPoeToken,
-				getApiKey: getPoeApiKey,
-			},
-		});
-	}
+	const confirmedFreeIds = new Set(cachedModels.filter(isConfirmedFreeModel).map((m) => m.id));
+	const freeModels = normalized.filter((m) => confirmedFreeIds.has(m.id));
+	const { chatModels: freeChatModels, responseModels: freeResponseModels } = categorizeModels(freeModels, cachedModels);
 
-	// Register poe-responses provider (openai-responses) for reasoning-capable models
-	// Shares auth with the main poe provider since pi reuses OAuth credentials by apiKey name
-	if (responseModels.length > 0) {
-		pi.registerProvider("poe-responses", {
-			baseUrl: "https://api.poe.com/v1",
-			apiKey: "POE_API_KEY",
-			api: "openai-responses",
-			models: responseModels,
-			authHeader: true,
-			oauth: {
-				name: "Sign in with Poe",
-				login: (callbacks) => loginPoe(callbacks, client),
-				refreshToken: refreshPoeToken,
-				getApiKey: getPoeApiKey,
-			},
-		});
-	}
+	// Main Poe providers with all tool-capable models.
+	registerPoeProvider(pi, "poe", "openai-completions", chatModels);
+	registerPoeProvider(pi, "poe-responses", "openai-responses", responseModels);
+
+	// Convenience aliases containing only Poe-confirmed zero-price models.
+	registerPoeProvider(pi, "poe-free", "openai-completions", freeChatModels);
+	registerPoeProvider(pi, "poe-free-responses", "openai-responses", freeResponseModels);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +294,7 @@ export default async function (pi: ExtensionAPI) {
 
 					// Classify models by pricing
 					const confirmedFree: Array<{ id: string; name: string; owner?: string }> = [];
-					const likelyFree: Array<{ id: string; name: string; owner?: string }> = [];
+					const unknownPricing: Array<{ id: string; name: string; owner?: string }> = [];
 					let paidCount = 0;
 
 					for (const m of cachedModels) {
@@ -304,24 +303,13 @@ export default async function (pi: ExtensionAPI) {
 						const owner = m.owned_by;
 
 						if (p == null) {
-							// pricing=null — likely free on the Poe app, but ambiguous for API
-							likelyFree.push({ id: m.id, name, owner });
+							// pricing=null is not a reliable free signal for API usage.
+							// For example, GPT-4o currently reports null pricing but still returns insufficient_quota.
+							unknownPricing.push({ id: m.id, name, owner });
+						} else if (isConfirmedFreeModel(m)) {
+							confirmedFree.push({ id: m.id, name, owner });
 						} else if (typeof p === "object") {
-							// Check all pricing fields for zero cost
-							const fields = ["prompt", "completion", "image", "request", "input_cache_read", "input_cache_write"];
-							let allZero = true;
-							for (const field of fields) {
-								const val = (p as Record<string, unknown>)[field];
-								if (val != null && Number(val) !== 0) {
-									allZero = false;
-									break;
-								}
-							}
-							if (allZero) {
-								confirmedFree.push({ id: m.id, name, owner });
-							} else {
-								paidCount++;
-							}
+							paidCount++;
 						} else {
 							paidCount++;
 						}
@@ -335,7 +323,7 @@ export default async function (pi: ExtensionAPI) {
 						(m.owner ?? "").toLowerCase().includes(query);
 
 					const filteredConfirmed = confirmedFree.filter(filterFn);
-					const filteredLikely = likelyFree.filter(filterFn);
+					const filteredUnknown = unknownPricing.filter(filterFn);
 
 					// Build output
 					let output = `Poe model catalog: ${cachedModels.length} models total\n`;
@@ -348,16 +336,16 @@ export default async function (pi: ExtensionAPI) {
 						}
 					}
 
-					if (filteredLikely.length > 0) {
-						// Group likely-free models by owner
+					if (filteredUnknown.length > 0) {
+						// Group unknown-priced models by owner
 						const byOwner = new Map<string, Array<{ id: string; name: string }>>();
-						for (const m of filteredLikely) {
+						for (const m of filteredUnknown) {
 							const key = m.owner ?? "unknown";
 							if (!byOwner.has(key)) byOwner.set(key, []);
 							byOwner.get(key)!.push(m);
 						}
 
-						output += `\n🟡 Likely free (pricing=null — free on Poe app, API cost ambiguous):\n`;
+						output += `\n🟡 Unknown API price (pricing=null — not assumed free):\n`;
 						// Sort owners by count descending
 						const sortedOwners = [...byOwner.entries()].sort((a, b) => b[1].length - a[1].length);
 						for (const [owner, models] of sortedOwners) {
@@ -373,7 +361,7 @@ export default async function (pi: ExtensionAPI) {
 								output += `  ${owner}: ${notable}${suffix}\n`;
 							}
 						}
-						output += `  Total: ${filteredLikely.length} models\n`;
+						output += `  Total: ${filteredUnknown.length} models\n`;
 					}
 
 					output += `\n💰 Paid (non-zero pricing): ${paidCount} models (skipped)`;

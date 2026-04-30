@@ -139,24 +139,28 @@ describe("categorizeModels — realistic scenarios", () => {
 				id: "claude-sonnet-4.6",
 				reasoning: { budget: null, required: false, supports_reasoning_effort: false },
 				supported_endpoints: ["/v1/messages", "/v1/responses", "/v1/chat/completions"],
+				supported_features: ["web_search", "tools"],
 				pricing: { prompt: "0.0000025758", completion: "0.0000128788" },
 			}),
 			makeModel({
 				id: "mistral-medium",
 				reasoning: null,
 				supported_endpoints: ["/v1/chat/completions"],
+				supported_features: ["tools"],
 				pricing: { prompt: "0.000002", completion: "0.00001" },
 			}),
 			makeModel({
 				id: "glm-5.1-fw",
 				reasoning: null,
 				supported_endpoints: [],
+				supported_features: ["tools"],
 				pricing: { prompt: null, completion: null, request: null },
 			}),
 			makeModel({
 				id: "grok-3-mini",
 				reasoning: { budget: null, required: false, supports_reasoning_effort: true },
 				supported_endpoints: ["/v1/chat/completions", "/v1/messages"],
+				supported_features: ["tools"],
 				pricing: { prompt: "0.0000015", completion: "0.0000075" },
 			}),
 		];
@@ -167,17 +171,17 @@ describe("categorizeModels — realistic scenarios", () => {
 		const chatIds = chatModels.map((m) => m.id);
 		const respIds = responseModels.map((m) => m.id);
 
-		// All 4 should be in chat (they all have chat/completions or no endpoint data)
+		// All 4 should be in chat (they all have chat/completions or Poe's empty endpoint list)
 		expect(chatIds).toContain("claude-sonnet-4.6");
 		expect(chatIds).toContain("mistral-medium");
-		expect(chatIds).toContain("glm-5.1-fw"); // no endpoints, included by default
+		expect(chatIds).toContain("glm-5.1-fw"); // endpoints=[], but tools=true works through chat/completions
 		expect(chatIds).toContain("grok-3-mini");
 
-		// Only claude-sonnet-4.6 has /v1/responses
+		// Only claude-sonnet-4.6 explicitly advertises /v1/responses
 		expect(respIds).toContain("claude-sonnet-4.6");
 		expect(respIds).not.toContain("mistral-medium"); // no /v1/responses
 		expect(respIds).not.toContain("grok-3-mini"); // no /v1/responses, reasoning=true but endpoint check wins
-		expect(respIds).toContain("glm-5.1-fw"); // no endpoints, but glm-5 pattern → reasoning=true → fallback puts it in responses
+		expect(respIds).not.toContain("glm-5.1-fw"); // endpoints=[] currently fails on /v1/responses
 	});
 
 	it("grok-3-mini reasoning falls back when no raw data provided", () => {
@@ -187,6 +191,7 @@ describe("categorizeModels — realistic scenarios", () => {
 				id: "grok-3-mini",
 				reasoning: { budget: null, required: false, supports_reasoning_effort: true },
 				supported_endpoints: ["/v1/chat/completions", "/v1/messages"],
+				supported_features: ["tools"],
 			})),
 		];
 		const { responseModels } = categorizeModels(models); // no raw data
@@ -221,6 +226,7 @@ describe("full pipeline", () => {
 				pricing: { prompt: null, completion: null, request: "0.00" },
 				reasoning: null,
 				supported_endpoints: [],
+				supported_features: [],
 			}),
 			// Video model — should be excluded
 			makeModel({
@@ -257,11 +263,11 @@ describe("full pipeline", () => {
 		expect(ids).not.toContain("elevenlabs-v3");
 		expect(ids).not.toContain("assistant"); // utility bot excluded
 		expect(ids).toContain("gpt-5.4");
-		expect(ids).toContain("gemma-4-31b-t");
+		expect(ids).not.toContain("gemma-4-31b-t"); // no supported_features.tools, so not safe for pi
 
 		expect(chatModels.map((m) => m.id)).toContain("gpt-5.4");
-		expect(chatModels.map((m) => m.id)).toContain("gemma-4-31b-t");
+		expect(chatModels.map((m) => m.id)).not.toContain("gemma-4-31b-t");
 		expect(responseModels.map((m) => m.id)).toContain("gpt-5.4");
-		expect(responseModels.map((m) => m.id)).not.toContain("gemma-4-31b-t"); // no reasoning
+		expect(responseModels.map((m) => m.id)).not.toContain("gemma-4-31b-t"); // filtered out before categorization
 	});
 });

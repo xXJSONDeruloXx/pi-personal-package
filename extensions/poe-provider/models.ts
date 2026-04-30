@@ -40,7 +40,7 @@ const EXCLUDE_PATTERNS = [
 	"qwen-image", "gpt-image",
 	"wan2.7-image", "z-image",
 	"amazon-nova-canvas", "bria-eraser", "clarity-upscaler",
-	"nova-reel", "gpt-oss-",
+	"nova-reel",
 	// Video generation
 	"video", "veo-", "sora", "kling-", "runway", "mochi", "wan-2", "wan-ani",
 	"pixverse", "ltx-2", "seedance", "vidu", "omnihuman",
@@ -110,11 +110,6 @@ function inferInputCapabilities(model: PoeModel): ("text" | "image")[] {
 	return input;
 }
 
-/** Known models that support tool use (beyond what Poe reports) */
-const KNOWN_TOOL_MODELS = [
-	"glm-5",    // GLM 5.x family supports tools but Poe doesn't always report it
-];
-
 /** Infer whether a model supports reasoning/extended thinking */
 function inferReasoning(model: PoeModel): boolean {
 	// Explicit flag takes priority — Poe returns `reasoning: { required: boolean }` or `reasoning: boolean`
@@ -131,12 +126,32 @@ function inferReasoning(model: PoeModel): boolean {
 }
 
 /** Check if a model should be excluded from provider registration */
+function hasToolSupport(model: PoeModel): boolean {
+	// pi's agent loop always sends tool definitions, so provider models must be
+	// function/tool-call capable. Poe now exposes this as supported_features.
+	// When the field is present, trust it; an empty array means tools are not
+	// supported even if the model is otherwise a text chat model.
+	if (Array.isArray(model.supported_features)) {
+		return model.supported_features.includes("tools");
+	}
+
+	// Legacy fallback for old fixtures/catalog snapshots that predate
+	// supported_features: preserve the previous endpoint/pattern based behavior.
+	// Current Poe responses include explicit [] for non-tool models, so those are
+	// still excluded by the branch above.
+	return true;
+}
+
 function shouldExclude(model: PoeModel): boolean {
 	if (matchesAny(model.id, EXCLUDE_PATTERNS)) return true;
+	if (!hasToolSupport(model)) return true;
 
-	// Exclude models that have no chat/responses/messages endpoint
-	const endpoints: string[] = model.supported_endpoints ?? [];
-	if (endpoints.length > 0) {
+	// Exclude models that explicitly advertise only non-chat endpoints.
+	// Some current Poe tool-capable chat models publish supported_endpoints: []
+	// but still work through /v1/chat/completions, so only reject non-empty lists
+	// that have no usable chat endpoint.
+	const endpoints = model.supported_endpoints;
+	if (Array.isArray(endpoints) && endpoints.length > 0) {
 		const usable = endpoints.some((ep) =>
 			ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages"
 		);
@@ -144,6 +159,17 @@ function shouldExclude(model: PoeModel): boolean {
 	}
 
 	return false;
+}
+
+/** True only when Poe explicitly reports every API pricing field as zero. */
+export function isConfirmedFreeModel(model: PoeModel): boolean {
+	const pricing = model.pricing;
+	if (!pricing || typeof pricing !== "object") return false;
+	const fields = ["prompt", "completion", "image", "request", "input_cache_read", "input_cache_write"];
+	return fields.every((field) => {
+		const val = (pricing as Record<string, unknown>)[field];
+		return val == null || Number(val) === 0;
+	});
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +199,7 @@ export function normalizeModel(model: PoeModel): ProviderModelConfig {
 			supportsDeveloperRole: false,
 			supportsReasoningEffort: false,
 			maxTokensField: "max_tokens",
+			supportsStrictMode: false,
 		},
 	};
 }
@@ -225,8 +252,8 @@ export function categorizeModels(models: ProviderModelConfig[], rawModels?: PoeM
 	const responseModels = models.filter((m) => {
 		const raw = rawLookup.get(m.id);
 		if (!raw) return m.reasoning; // fallback to reasoning flag
-		const endpoints: string[] = raw.supported_endpoints ?? [];
-		if (endpoints.length === 0) return m.reasoning; // no data, use reasoning
+		const endpoints = raw.supported_endpoints;
+		if (!Array.isArray(endpoints)) return m.reasoning; // legacy/no data, use reasoning
 		return endpoints.some((ep) => ep === "/v1/responses");
 	});
 

@@ -289,28 +289,51 @@ describe("shouldExclude", () => {
 		expect(result).toHaveLength(0);
 	});
 
-	it("does not exclude chat models with supported endpoints", () => {
+	it("does not exclude tool-capable chat models with supported endpoints", () => {
 		const result = normalizeModels([
 			makeModel({
 				id: "my-chat-model",
 				supported_endpoints: ["/v1/chat/completions", "/v1/responses"],
+				supported_features: ["tools"],
 			}),
 		]);
 		expect(result).toHaveLength(1);
 	});
 
-	it("includes models with no endpoint data (assumed compatible)", () => {
+	it("includes tool-capable models with Poe's empty endpoint list", () => {
 		const result = normalizeModels([
-			makeModel({ id: "some-free-model", supported_endpoints: [] }),
+			makeModel({ id: "some-tool-model", supported_endpoints: [], supported_features: ["tools"] }),
 		]);
-		// Not in EXCLUDE_PATTERNS, and empty endpoints is treated as "unknown, include"
+		// Poe currently publishes supported_endpoints: [] for some models that still work via /chat/completions.
 		expect(result).toHaveLength(1);
+	});
+
+	it("excludes chat models that explicitly lack tool support", () => {
+		const result = normalizeModels([
+			makeModel({
+				id: "qwen3.6-plus",
+				supported_endpoints: [],
+				supported_features: [],
+			}),
+		]);
+		expect(result).toHaveLength(0);
+	});
+
+	it("keeps tool-capable GPT-OSS chat variants", () => {
+		const result = normalizeModels([
+			makeModel({
+				id: "gpt-oss-120b-cs",
+				supported_endpoints: [],
+				supported_features: ["tools"],
+			}),
+		]);
+		expect(result.map((m) => m.id)).toEqual(["gpt-oss-120b-cs"]);
 	});
 
 	it("deduplicates models by id", () => {
 		const result = normalizeModels([
-			makeModel({ id: "dup-model" }),
-			makeModel({ id: "dup-model" }),
+			makeModel({ id: "dup-model", supported_features: ["tools"] }),
+			makeModel({ id: "dup-model", supported_features: ["tools"] }),
 		]);
 		expect(result).toHaveLength(1);
 	});
@@ -370,7 +393,7 @@ describe("categorizeModels", () => {
 		expect(responseModels).toHaveLength(0);
 	});
 
-	it("falls back to reasoning flag when no endpoint data", () => {
+	it("falls back to reasoning flag when endpoint data is absent", () => {
 		const models = [
 			normalizeModel(makeModel({
 				id: "reasoning-no-endpoints",
@@ -382,12 +405,24 @@ describe("categorizeModels", () => {
 			})),
 		];
 		const raw = [
-			makeModel({ id: "reasoning-no-endpoints", supported_endpoints: [] }),
-			makeModel({ id: "plain-no-endpoints", supported_endpoints: [] }),
+			makeModel({ id: "reasoning-no-endpoints" }),
+			makeModel({ id: "plain-no-endpoints" }),
 		];
 		const { responseModels } = categorizeModels(models, raw);
 		expect(responseModels).toHaveLength(1);
 		expect(responseModels[0].id).toBe("reasoning-no-endpoints");
+	});
+
+	it("does not treat Poe's explicit empty endpoint list as /v1/responses support", () => {
+		const models = [
+			normalizeModel(makeModel({
+				id: "reasoning-empty-endpoints",
+				reasoning: { budget: null, required: false, supports_reasoning_effort: true },
+			})),
+		];
+		const raw = [makeModel({ id: "reasoning-empty-endpoints", supported_endpoints: [] })];
+		const { responseModels } = categorizeModels(models, raw);
+		expect(responseModels).toHaveLength(0);
 	});
 
 	it("includes /v1/messages models in chatModels", () => {

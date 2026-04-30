@@ -38,7 +38,15 @@ export interface PoeModel {
 		input_cache_write?: number | string | null;
 		[key: string]: unknown;
 	};
-	reasoning?: boolean;
+	reasoning?: boolean | null | {
+		budget?: number | null;
+		required?: boolean;
+		supports_reasoning_effort?: boolean;
+	};
+	/** Poe-advertised request features, e.g. ["tools", "web_search"]. */
+	supported_features?: string[];
+	/** Poe-advertised compatible endpoints, when published for the model. */
+	supported_endpoints?: string[];
 	/** Additional fields we don't strictly map but preserve for debugging */
 	[key: string]: unknown;
 }
