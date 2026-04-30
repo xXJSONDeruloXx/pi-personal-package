@@ -55,13 +55,41 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	const normalized = normalizeModels(cachedModels);
 	const { chatModels, responseModels } = categorizeModels(normalized, cachedModels);
 
+	// Load custom/community bot IDs that users have added
+	const customModelIds = await loadCustomModels();
+
+	// Merge custom models into the chat models list (avoid duplicates)
+	const existingIds = new Set(chatModels.map((m) => m.id));
+	const customModels: ProviderModelConfig[] = customModelIds
+		.filter((id) => !existingIds.has(id))
+		.map((modelId) => ({
+			id: modelId,
+			name: modelId,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 4096,
+			compat: {
+				supportsDeveloperRole: false,
+				supportsReasoningEffort: false,
+				maxTokensField: "max_tokens",
+				supportsStrictMode: false,
+			},
+		}));
+	const allChatModels = [...chatModels, ...customModels];
+
+	if (customModelIds.length > 0) {
+		console.log(`[poe] Loaded ${customModelIds.length} custom bot(s): ${customModelIds.join(", ")}`);
+	}
+
 	// Register the main poe provider (openai-completions) with all chat-capable models
-	if (chatModels.length > 0) {
+	if (allChatModels.length > 0) {
 		pi.registerProvider("poe", {
 			baseUrl: "https://api.poe.com/v1",
 			apiKey: "POE_API_KEY",
 			api: "openai-completions",
-			models: chatModels,
+			models: allChatModels,
 			authHeader: true,
 			oauth: {
 				name: "Sign in with Poe",
@@ -484,32 +512,12 @@ export default async function (pi: ExtensionAPI) {
 							"info"
 						);
 					} else {
-						// Create a minimal ProviderModelConfig for the custom bot
-						const customModel: ProviderModelConfig = {
-							id: modelId,
-							name: modelId,
-							reasoning: false,
-							input: ["text"],
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-							contextWindow: 128000,
-							maxTokens: 4096,
-							compat: {
-								supportsDeveloperRole: false,
-								supportsReasoningEffort: false,
-								maxTokensField: "max_tokens",
-								supportsStrictMode: false,
-							},
-						};
-
-						// Register with the Poe provider using the extension API
-						pi.registerProviderModel("poe", customModel);
-
-						// Persist to config file
+						// Persist to config file - model will be available after /reload
 						await saveCustomModel(modelId);
 
 						ctx.ui.notify(
-							`Custom bot "${modelId}" registered with Poe provider.\n` +
-							`Use: pi --provider poe --model ${modelId}`,
+							`Custom bot "${modelId}" saved. Run /reload to use it.\n` +
+							`Then: pi --provider poe --model ${modelId}`,
 							"success"
 						);
 					}
