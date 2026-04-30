@@ -26,7 +26,37 @@ const LEAK_KEYWORDS = [
   "credential",
   "password",
   "auth",
+  "openai",
+  "anthropic",
+  "sk-",
+  "key",
+  "config",
+  "env",
+  "dotenv",
+  "commit",
+  "accident",
+  "oops",
+  "remove",
+  "delete",
+  "fix",
+  "revert",
 ];
+
+// Additional suspicious patterns in commit messages
+const SUSPICIOUS_PATTERNS = [
+  /sk-[a-zA-Z0-9]{10,}/,
+  /sk-ant-[a-zA-Z0-9]+/,
+  /api[_-]?key/i,
+  /apikey/i,
+  /secret/i,
+  /token/i,
+  /password/i,
+  /OPENAI/i,
+  /ANTHROPIC/i,
+];
+
+// Sample rate for non-suspicious commits (to catch keys in otherwise innocent commits)
+const SAMPLE_RATE = 0.05; // Sample 5% of non-suspicious commits
 
 interface ScannedCommit {
   repo: string;
@@ -81,6 +111,25 @@ function extractPotentialKeys(text: string, context = ""): Array<{ type: string;
 }
 
 /**
+ * Check if a commit looks suspicious based on message patterns
+ */
+function isSuspiciousCommit(message: string): boolean {
+  const msgLower = message.toLowerCase();
+  
+  // Check for leak keywords
+  if (LEAK_KEYWORDS.some(kw => msgLower.includes(kw.toLowerCase()))) {
+    return true;
+  }
+  
+  // Check for suspicious patterns
+  if (SUSPICIOUS_PATTERNS.some(p => p.test(message))) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Fetch recent commits from GitHub using the public events API
  */
 async function fetchRecentCommits(
@@ -126,15 +175,17 @@ async function fetchRecentCommits(
       if (event.type !== "PushEvent" || !event.payload?.commits) continue;
       
       for (const commit of event.payload.commits) {
-        // Check if commit message contains leak keywords
-        const hasLeakKeyword = LEAK_KEYWORDS.some(kw => 
-          commit.message.toLowerCase().includes(kw)
-        );
-        
-        // Also check for API key patterns in commit message
+        // Check for API key patterns in commit message first
         const keysInMessage = extractPotentialKeys(commit.message);
         
-        if (hasLeakKeyword || keysInMessage.length > 0) {
+        // Check if commit message looks suspicious
+        const isSuspicious = isSuspiciousCommit(commit.message);
+        
+        // Check for API key patterns in commit message
+        // Also sample non-suspicious commits at a low rate to catch accidental leaks
+        const shouldSample = Math.random() < SAMPLE_RATE;
+        
+        if (isSuspicious || keysInMessage.length > 0 || shouldSample) {
           commits.push({
             repo: event.repo.name,
             sha: commit.sha,
