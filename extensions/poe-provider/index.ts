@@ -4,16 +4,18 @@
  * Features:
  * - Dynamic provider registration (poe-chat, poe-responses)
  * - OAuth /login poe support
- * - /poe slash commands (balance, history, models, refresh, account)
+ * - /poe slash commands (balance, history, models, free, refresh, account, add)
  * - LLM-callable tools (poe_get_balance, poe_list_models, poe_get_usage_history)
  * - Footer status badge showing point balance
+ * - Custom bot registration for community bots not in catalog
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 import { PoeClient, type PoeModel, type PoeHistoryEntry } from "./poe-client.js";
 import { normalizeModels, categorizeModels } from "./models.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
+import { loadCustomModels, saveCustomModel } from "./custom-models.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -87,6 +89,31 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 			},
 		});
 	}
+
+	// Load and register custom/community bot IDs that users have added
+	const customModels = await loadCustomModels();
+	for (const modelId of customModels) {
+		const customModel: ProviderModelConfig = {
+			id: modelId,
+			name: modelId,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 4096,
+			compat: {
+				supportsDeveloperRole: false,
+				supportsReasoningEffort: false,
+				maxTokensField: "max_tokens",
+				supportsStrictMode: false,
+			},
+		};
+		pi.registerProviderModel("poe", customModel);
+	}
+
+	if (customModels.length > 0) {
+		console.log(`[poe] Registered ${customModels.length} custom bot(s): ${customModels.join(", ")}`);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -156,9 +183,9 @@ export default async function (pi: ExtensionAPI) {
 	// -------------------------------------------------------------------
 
 	pi.registerCommand("poe", {
-		description: "Poe integration: balance, history, models, free, refresh, account",
+		description: "Poe integration: balance, history, models, free, refresh, account, add",
 		getArgumentCompletions(prefix: string) {
-			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout"];
+			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout", "add"];
 			return subs
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s }));
@@ -446,9 +473,52 @@ export default async function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "add": {
+					// Register a custom/community bot ID not in the standard catalog
+					const modelId = rest.trim();
+					if (!modelId) {
+						ctx.ui.notify(
+							"Usage: /poe add <model-id>\n" +
+							"Register a custom/community bot from Poe that may not appear in the catalog.\n" +
+							"Example: /poe add GLM-5-FWAI",
+							"info"
+						);
+					} else {
+						// Create a minimal ProviderModelConfig for the custom bot
+						const customModel: ProviderModelConfig = {
+							id: modelId,
+							name: modelId,
+							reasoning: false,
+							input: ["text"],
+							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+							contextWindow: 128000,
+							maxTokens: 4096,
+							compat: {
+								supportsDeveloperRole: false,
+								supportsReasoningEffort: false,
+								maxTokensField: "max_tokens",
+								supportsStrictMode: false,
+							},
+						};
+
+						// Register with the Poe provider using the extension API
+						pi.registerProviderModel("poe", customModel);
+
+						// Persist to config file
+						await saveCustomModel(modelId);
+
+						ctx.ui.notify(
+							`Custom bot "${modelId}" registered with Poe provider.\n` +
+							`Use: pi --provider poe --model ${modelId}`,
+							"success"
+						);
+					}
+					break;
+				}
+
 				default: {
 					ctx.ui.notify(
-						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout",
+						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout | add",
 						"info"
 					);
 					break;
