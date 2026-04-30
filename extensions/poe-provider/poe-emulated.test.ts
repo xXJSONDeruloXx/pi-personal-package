@@ -3,6 +3,7 @@ import { Type } from "typebox";
 import {
 	convertContextForEmulatedTools,
 	parseEmulatedToolCalls,
+	parseEmulatedToolResponse,
 	streamPoeEmulatedTools,
 	validateEmulatedToolCalls,
 } from "./poe-emulated.js";
@@ -63,6 +64,11 @@ describe("parseEmulatedToolCalls", () => {
 
 	it("returns null for ordinary text", () => {
 		expect(parseEmulatedToolCalls("hello world")).toBeNull();
+	});
+
+	it("captures text before a tagged tool call", () => {
+		const parsed = parseEmulatedToolResponse('Hello first.\n<tool_calls>[{"name":"ls","arguments":{}}]</tool_calls>');
+		expect(parsed).toEqual({ calls: [{ name: "ls", arguments: {} }], prefixText: "Hello first." });
 	});
 });
 
@@ -131,6 +137,18 @@ describe("streamPoeEmulatedTools", () => {
 		expect(events.at(-1)).toMatchObject({ type: "done", reason: "toolUse" });
 	});
 
+	it("emits text before tool calls for sandwich turns", async () => {
+		const fetchMock = mockFetchResponses(['Hello! I will clean that up now.\n<tool_calls>[{"name":"ls","arguments":{"path":"."}}]</tool_calls>']);
+		const context: Context = { messages: [{ role: "user", content: "say hi then list files", timestamp: 0 }], tools: [lsTool] };
+		const events = await collectStream(streamPoeEmulatedTools(model, context, { apiKey: "test" }));
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(["text_delta", "toolcall_end"]));
+		const done = events.at(-1);
+		expect(done).toMatchObject({ type: "done", reason: "toolUse" });
+		expect(done.message.content[0]).toMatchObject({ type: "text", text: "Hello! I will clean that up now." });
+	});
+
 	it("repairs native-agent-style tool preambles", async () => {
 		const fetchMock = mockFetchResponses([
 			"Let me check what model you're using and see if the emulated provider is active:",
@@ -152,6 +170,18 @@ describe("streamPoeEmulatedTools", () => {
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(events.at(-1)).toMatchObject({ type: "done", reason: "stop" });
+	});
+
+	it("repairs scratchpad-like preambles that end with an action colon", async () => {
+		const fetchMock = mockFetchResponses([
+			'Thinking...\n> I can see the command succeeded. Let me check the stream handling now:',
+			'<tool_calls>[{"name":"ls","arguments":{"path":"."}}]</tool_calls>',
+		]);
+		const context: Context = { messages: [{ role: "user", content: "check stream handling", timestamp: 0 }], tools: [lsTool] };
+		const events = await collectStream(streamPoeEmulatedTools(model, context, { apiKey: "test" }));
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(events.at(-1)).toMatchObject({ type: "done", reason: "toolUse" });
 	});
 
 	it("emits an error after exhausting repair attempts", async () => {

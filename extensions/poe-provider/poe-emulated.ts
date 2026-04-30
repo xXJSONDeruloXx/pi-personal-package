@@ -44,6 +44,11 @@ const TOOL_TAG_RE = /<tool_calls>\s*([\s\S]*?)\s*<\/tool_calls>/i;
 const FENCED_JSON_RE = /```(?:json)?\s*([\s\S]*?)\s*```/i;
 const MAX_REPAIR_ATTEMPTS = 2;
 
+interface ParsedToolResponse {
+	calls: EmulatedToolCall[];
+	prefixText: string;
+}
+
 function textFromContent(content: string | (TextContent | ImageContent)[]): string | Array<Record<string, unknown>> {
 	if (typeof content === "string") return content;
 	const hasImages = content.some((c) => c.type === "image");
@@ -97,10 +102,11 @@ function buildToolInstructions(tools?: Tool[]): string {
 		"[{\"name\":\"tool_name\",\"arguments\":{\"arg\":\"value\"}}]",
 		"</tool_calls>",
 		"Rules:",
-		"- Do not include prose before or after <tool_calls> when calling tools.",
 		"- Use the exact tool names shown below.",
 		"- arguments must be a JSON object matching the tool's parameters schema.",
-		"- If no tool is needed, answer normally without <tool_calls>.",
+		"- If you want to say a short note before using a tool, put that note before <tool_calls> in the same response.",
+		"- Never end with a promise like 'Let me check:' or 'I'll run that:' unless the same response includes <tool_calls>.",
+		"- If no tool is needed and you are completely done, answer normally without <tool_calls>.",
 		"Available tools:",
 		JSON.stringify(toolSpecs),
 	].join("\n");
@@ -160,13 +166,25 @@ function parseJsonToolCalls(candidate: string): EmulatedToolCall[] | null {
 }
 
 export function parseEmulatedToolCalls(text: string): EmulatedToolCall[] | null {
+	return parseEmulatedToolResponse(text)?.calls ?? null;
+}
+
+export function parseEmulatedToolResponse(text: string): ParsedToolResponse | null {
 	const trimmed = text.trim();
-	const tagged = TOOL_TAG_RE.exec(text)?.[1];
+	const taggedMatch = TOOL_TAG_RE.exec(text);
+	if (taggedMatch) {
+		const calls = parseJsonToolCalls(taggedMatch[1].trim());
+		if (calls) {
+			const prefixText = text.slice(0, taggedMatch.index).trim();
+			return { calls, prefixText };
+		}
+	}
+
 	const fenced = FENCED_JSON_RE.exec(text)?.[1];
-	const candidates = [tagged, fenced, trimmed].filter((v): v is string => !!v && v.trim().length > 0);
+	const candidates = [fenced, trimmed].filter((v): v is string => !!v && v.trim().length > 0);
 	for (const candidate of candidates) {
 		const calls = parseJsonToolCalls(candidate.trim());
-		if (calls) return calls;
+		if (calls) return { calls, prefixText: "" };
 	}
 	return null;
 }
@@ -204,17 +222,28 @@ function looksLikeFailedToolCall(text: string): boolean {
 		|| lower.includes('"name"') && (lower.startsWith("{") || lower.startsWith("["));
 }
 
+function normalizePotentialPreamble(text: string): string {
+	let normalized = text.trim().toLowerCase();
+	if (normalized.startsWith("thinking...")) {
+		normalized = normalized.slice("thinking...".length).trim();
+	}
+	// Strip markdown blockquote markers from models that expose scratchpad-like prose.
+	normalized = normalized.replace(/^>\s?/gm, "").trim();
+	return normalized;
+}
+
 function looksLikeToolIntentPreamble(text: string, tools?: Tool[]): boolean {
 	if (!tools || tools.length === 0) return false;
-	const normalized = text.trim().toLowerCase();
-	if (normalized.length > 500) return false;
+	const normalized = normalizePotentialPreamble(text);
+	if (normalized.length > 1200) return false;
 
 	// Non-native models often answer with a native-agent-style preamble like
 	// "Let me check that:" and then stop, instead of emitting the tool-call JSON.
 	// Treat those short action promises as repairable tool-call failures.
 	const intentPatterns = [
-		/^(let me|i(?:'|’)ll|i will|i can|i should|i need to|i(?:'|’)m going to)\b[\s\S]{0,240}\b(check|inspect|look|list|read|open|search|grep|find|run|execute|test|verify|see)\b/,
-		/\b(i(?:'|’)ll|i will|let me)\b[\s\S]{0,120}\b(use|call|run)\b[\s\S]{0,80}\b(tool|command|bash|shell)\b/,
+		/^(let me|i(?:'|’)ll|i will|i can|i should|i need to|i(?:'|’)m going to)\b[\s\S]{0,360}\b(check|inspect|look|list|read|open|search|grep|find|run|execute|test|verify|see|clean|remove|delete)\b/,
+		/\b(i(?:'|’)ll|i will|let me|i need to|i should)\b[\s\S]{0,180}\b(use|call|run|execute)\b[\s\S]{0,120}\b(tool|command|bash|shell)\b/,
+		/\b(let me|i(?:'|’)ll|i will|i need to|i should)\b[\s\S]{0,360}:\s*$/,
 	];
 	return intentPatterns.some((pattern) => pattern.test(normalized));
 }
@@ -302,8 +331,16 @@ function emitText(stream: AssistantMessageEventStream, output: AssistantMessage,
 	stream.push({ type: "done", reason: "stop", message: output });
 }
 
-function emitToolCalls(stream: AssistantMessageEventStream, output: AssistantMessage, calls: EmulatedToolCall[]): void {
+function emitToolCalls(stream: AssistantMessageEventStream, output: AssistantMessage, calls: EmulatedToolCall[], prefixText = ""): void {
 	output.stopReason = "toolUse";
+	if (prefixText.trim()) {
+		const contentIndex = output.content.length;
+		output.content.push({ type: "text", text: "" });
+		stream.push({ type: "text_start", contentIndex, partial: output });
+		(output.content[contentIndex] as TextContent).text = prefixText.trim();
+		stream.push({ type: "text_delta", contentIndex, delta: prefixText.trim(), partial: output });
+		stream.push({ type: "text_end", contentIndex, content: prefixText.trim(), partial: output });
+	}
 	for (const call of calls) {
 		const toolCall: ToolCall = {
 			type: "toolCall",
@@ -351,8 +388,8 @@ export function streamPoeEmulatedTools(
 				const text = json.choices?.[0]?.message?.content ?? "";
 				lastText = text;
 
-				const parsedCalls = parseEmulatedToolCalls(text);
-				if (!parsedCalls) {
+				const parsedResponse = parseEmulatedToolResponse(text);
+				if (!parsedResponse) {
 					lastErrors = [looksLikeToolIntentPreamble(text, context.tools)
 						? "The response says you need to inspect, run, read, search, or verify something, but it did not include a <tool_calls> block."
 						: "Could not parse a <tool_calls> JSON block."];
@@ -362,9 +399,9 @@ export function streamPoeEmulatedTools(
 						return;
 					}
 				} else {
-					const validation = validateEmulatedToolCalls(parsedCalls, context.tools);
+					const validation = validateEmulatedToolCalls(parsedResponse.calls, context.tools);
 					if (validation.errors.length === 0) {
-						emitToolCalls(stream, output, validation.validCalls);
+						emitToolCalls(stream, output, validation.validCalls, parsedResponse.prefixText);
 						stream.end();
 						return;
 					}
