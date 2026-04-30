@@ -9,7 +9,8 @@ import { homedir } from "os";
 import { join } from "path";
 import { readFile, writeFile, mkdir } from "fs/promises";
 
-const CONFIG_DIR = join(homedir(), ".config", "pi-poe-provider");
+// Use pi's standard agent config directory
+const CONFIG_DIR = join(homedir(), ".pi", "agent", "poe-provider");
 const CUSTOM_MODELS_FILE = join(CONFIG_DIR, "custom-models.json");
 
 export interface CustomModelsConfig {

@@ -58,6 +58,22 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	// Load custom/community bot IDs that users have added
 	const customModelIds = await loadCustomModels();
 
+	// Add custom models to cachedModels so they appear in /poe models searches
+	const existingCachedIds = new Set(cachedModels.map((m) => m.id));
+	for (const modelId of customModelIds) {
+		if (!existingCachedIds.has(modelId)) {
+			cachedModels.push({
+				id: modelId,
+				object: "model",
+				created: 0,
+				owned_by: "custom",
+				metadata: { display_name: modelId },
+				supported_endpoints: ["/v1/chat/completions"],
+				supported_features: [],
+			} as PoeModel);
+		}
+	}
+
 	// Merge custom models into the chat models list (avoid duplicates)
 	const existingIds = new Set(chatModels.map((m) => m.id));
 	const customModels: ProviderModelConfig[] = customModelIds
