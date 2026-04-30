@@ -289,6 +289,17 @@ describe("shouldExclude", () => {
 		expect(result).toHaveLength(0);
 	});
 
+	it("excludes non-text output models even if pattern misses them", () => {
+		const result = normalizeModels([
+			makeModel({
+				id: "grok-imagine-image",
+				supported_features: ["tools"],
+				architecture: { input_modalities: ["text"], output_modalities: ["image"] },
+			}),
+		]);
+		expect(result).toHaveLength(0);
+	});
+
 	it("does not exclude tool-capable chat models with supported endpoints", () => {
 		const result = normalizeModels([
 			makeModel({

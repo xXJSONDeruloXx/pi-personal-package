@@ -126,7 +126,7 @@ function inferReasoning(model: PoeModel): boolean {
 }
 
 /** Check if a model should be excluded from provider registration */
-function hasToolSupport(model: PoeModel): boolean {
+export function hasToolSupport(model: PoeModel): boolean {
 	// pi's agent loop always sends tool definitions, so provider models must be
 	// function/tool-call capable. Poe now exposes this as supported_features.
 	// When the field is present, trust it; an empty array means tools are not
@@ -142,23 +142,30 @@ function hasToolSupport(model: PoeModel): boolean {
 	return true;
 }
 
-function shouldExclude(model: PoeModel): boolean {
-	if (matchesAny(model.id, EXCLUDE_PATTERNS)) return true;
-	if (!hasToolSupport(model)) return true;
-
-	// Exclude models that explicitly advertise only non-chat endpoints.
-	// Some current Poe tool-capable chat models publish supported_endpoints: []
-	// but still work through /v1/chat/completions, so only reject non-empty lists
-	// that have no usable chat endpoint.
+function hasUsableChatEndpoint(model: PoeModel): boolean {
+	// Some current Poe chat models publish supported_endpoints: [] but still work
+	// through /v1/chat/completions, so only reject non-empty lists that have no
+	// usable chat endpoint.
 	const endpoints = model.supported_endpoints;
 	if (Array.isArray(endpoints) && endpoints.length > 0) {
-		const usable = endpoints.some((ep) =>
+		return endpoints.some((ep) =>
 			ep === "/v1/chat/completions" || ep === "/v1/responses" || ep === "/v1/messages"
 		);
-		if (!usable) return true;
 	}
+	return true;
+}
 
-	return false;
+function hasTextOutput(model: PoeModel): boolean {
+	const outputs = model.architecture?.output_modalities;
+	return !Array.isArray(outputs) || outputs.some((modality) => modality.includes("text"));
+}
+
+function shouldExclude(model: PoeModel): boolean {
+	return matchesAny(model.id, EXCLUDE_PATTERNS) || !hasTextOutput(model) || !hasToolSupport(model) || !hasUsableChatEndpoint(model);
+}
+
+function shouldExcludeFromEmulated(model: PoeModel): boolean {
+	return matchesAny(model.id, EXCLUDE_PATTERNS) || !hasTextOutput(model) || hasToolSupport(model) || !hasUsableChatEndpoint(model);
 }
 
 /** True only when Poe explicitly reports every API pricing field as zero. */
@@ -208,18 +215,27 @@ export function normalizeModel(model: PoeModel): ProviderModelConfig {
  * Filter and normalize the raw Poe model list.
  * Excludes video/audio generation models and deduplicates.
  */
-export function normalizeModels(models: PoeModel[]): ProviderModelConfig[] {
+function normalizeFilteredModels(models: PoeModel[], exclude: (model: PoeModel) => boolean): ProviderModelConfig[] {
 	const seen = new Set<string>();
 	const result: ProviderModelConfig[] = [];
 
 	for (const model of models) {
-		if (shouldExclude(model)) continue;
+		if (exclude(model)) continue;
 		if (seen.has(model.id)) continue;
 		seen.add(model.id);
 		result.push(normalizeModel(model));
 	}
 
 	return result;
+}
+
+export function normalizeModels(models: PoeModel[]): ProviderModelConfig[] {
+	return normalizeFilteredModels(models, shouldExclude);
+}
+
+/** Normalize non-native-tool chat models for the experimental poe-emulated provider. */
+export function normalizeEmulatedModels(models: PoeModel[]): ProviderModelConfig[] {
+	return normalizeFilteredModels(models, shouldExcludeFromEmulated);
 }
 
 /**

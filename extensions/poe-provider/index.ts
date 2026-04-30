@@ -12,7 +12,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 import { PoeClient, type PoeModel, type PoeHistoryEntry } from "./poe-client.js";
-import { normalizeModels, categorizeModels, isConfirmedFreeModel } from "./models.js";
+import { normalizeModels, normalizeEmulatedModels, categorizeModels, isConfirmedFreeModel } from "./models.js";
+import { streamPoeEmulatedTools } from "./poe-emulated.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,15 @@ function resolveApiKey(): string | undefined {
 // Provider registration
 // ---------------------------------------------------------------------------
 
+function poeOAuthConfig() {
+	return {
+		name: "Sign in with Poe",
+		login: (callbacks: Parameters<typeof loginPoe>[0]) => loginPoe(callbacks, client),
+		refreshToken: refreshPoeToken,
+		getApiKey: getPoeApiKey,
+	};
+}
+
 function registerPoeProvider(
 	pi: ExtensionAPI,
 	name: string,
@@ -53,12 +63,7 @@ function registerPoeProvider(
 		api,
 		models,
 		authHeader: true,
-		oauth: {
-			name: "Sign in with Poe",
-			login: (callbacks) => loginPoe(callbacks, client),
-			refreshToken: refreshPoeToken,
-			getApiKey: getPoeApiKey,
-		},
+		oauth: poeOAuthConfig(),
 	});
 }
 
@@ -73,6 +78,7 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	}
 
 	const normalized = normalizeModels(cachedModels);
+	const emulatedModels = normalizeEmulatedModels(cachedModels);
 	const { chatModels, responseModels } = categorizeModels(normalized, cachedModels);
 
 	const confirmedFreeIds = new Set(cachedModels.filter(isConfirmedFreeModel).map((m) => m.id));
@@ -86,6 +92,22 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	// Convenience aliases containing only Poe-confirmed zero-price models.
 	registerPoeProvider(pi, "poe-free", "openai-completions", freeChatModels);
 	registerPoeProvider(pi, "poe-free-responses", "openai-responses", freeResponseModels);
+
+	// Experimental provider for Poe chat models that reject native tool calling.
+	// The custom stream handler converts pi tools to prompt instructions and parses
+	// model-emitted JSON back into pi tool calls. Reliability varies by model.
+	// Uses openai-completions API type for compatibility with existing stream/display logic.
+	if (emulatedModels.length > 0) {
+		pi.registerProvider("poe-emulated", {
+			baseUrl: "https://api.poe.com/v1",
+			apiKey: "POE_API_KEY",
+			api: "openai-completions",
+			models: emulatedModels,
+			authHeader: true,
+			oauth: poeOAuthConfig(),
+			streamSimple: streamPoeEmulatedTools,
+		});
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -26,8 +26,8 @@
   - Fill the template like a concise human, not a placeholder bot:
     - **Description**: write a short, direct explanation of the bug/change in plain language. Prefer 1–3 brief sentences or a tiny paragraph. Use `WIP` only if the user explicitly wants that or no meaningful summary is available yet.
     - **Recording**: attach the actual GitHub-uploaded recording/video, not a local filesystem path. If a before/after screenshot helps explain the issue, attach that too.
-    - **Type of Change**: check the boxes that actually apply.
-    - **Checklist**: check items that are actually true, especially when a recording is attached and the change clearly fits project scope; leave anything uncertain unchecked.
+    - **Type of Change**: include ALL checkbox options from the template. Check the boxes that actually apply; leave unchecked ones present (never omit a checkbox line from the template).
+    - **Checklist**: include ALL checkbox options from the template. Check items that are actually true, especially when a recording is attached and the change clearly fits project scope; leave anything uncertain unchecked (never omit a checkbox line from the template).
   - After opening the draft PR, always open the PR URL in the browser with `open <pr_url>`.
   - If media needs to be attached and `gh` cannot upload it directly into the PR body, open the PR in the browser and add the screenshots/video there so the final PR body matches the polished human-authored format.
 - For GameNative PRs and commit messages the agent creates, prefer conventional/semantic prefixes such as `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`, or `test:`.
