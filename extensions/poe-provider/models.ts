@@ -19,6 +19,8 @@ const REASONING_PATTERNS = [
 	"gemini-2.5",               // Gemini thinking
 	"glm-5",                    // GLM 5.x family (thinking)
 	"qwen3",                     // Qwen 3 thinking
+	"kimi-k2",                  // Kimi K2.x family (thinking)
+	"gemma-4",                  // Gemma 4 family (thinking)
 	"reasoner",                  // Generic pattern
 ];
 
@@ -204,7 +206,14 @@ export function normalizeModel(model: PoeModel): ProviderModelConfig {
 		maxTokens,
 		compat: {
 			supportsDeveloperRole: false,
-			supportsReasoningEffort: false,
+			supportsReasoningEffort: true,
+			reasoningEffortMap: {
+				minimal: "low",
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "high",
+			},
 			maxTokensField: "max_tokens",
 			supportsStrictMode: false,
 		},

@@ -4,17 +4,19 @@
  * Features:
  * - Dynamic provider registration (poe-chat, poe-responses)
  * - OAuth /login poe support
- * - /poe slash commands (balance, history, models, refresh, account)
+ * - /poe slash commands (balance, history, models, free, refresh, account, add)
  * - LLM-callable tools (poe_get_balance, poe_list_models, poe_get_usage_history)
  * - Footer status badge showing point balance
+ * - Custom bot registration for community bots not in catalog
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
 import { PoeClient, type PoeModel, type PoeHistoryEntry } from "./poe-client.js";
 import { normalizeModels, normalizeEmulatedModels, categorizeModels, isConfirmedFreeModel } from "./models.js";
 import { streamPoeEmulatedTools } from "./poe-emulated.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
+import { loadCustomModels, saveCustomModel } from "./custom-models.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -93,16 +95,62 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 	registerPoeProvider(pi, "poe-free", "openai-completions", freeChatModels);
 	registerPoeProvider(pi, "poe-free-responses", "openai-responses", freeResponseModels);
 
+	// Load custom/community bot IDs that users have added
+	const customModelIds = await loadCustomModels();
+
+	// Add custom models to cachedModels so they appear in /poe models searches
+	const existingCachedIds = new Set(cachedModels.map((m) => m.id));
+	for (const modelId of customModelIds) {
+		if (!existingCachedIds.has(modelId)) {
+			cachedModels.push({
+				id: modelId,
+				object: "model",
+				created: 0,
+				owned_by: "custom",
+				metadata: { display_name: modelId },
+				supported_endpoints: ["/v1/chat/completions"],
+				supported_features: [],
+			} as PoeModel);
+		}
+	}
+
+	// Merge custom models into the chat models list (avoid duplicates)
+	const existingIds = new Set(chatModels.map((m) => m.id));
+	const customModels: ProviderModelConfig[] = customModelIds
+		.filter((id) => !existingIds.has(id))
+		.map((modelId) => ({
+			id: modelId,
+			name: modelId,
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 128000,
+			maxTokens: 4096,
+			compat: {
+				supportsDeveloperRole: false,
+				supportsReasoningEffort: false,
+				maxTokensField: "max_tokens",
+				supportsStrictMode: false,
+			},
+		}));
+	const allChatModels = [...chatModels, ...customModels];
+
+	if (customModelIds.length > 0) {
+		console.log(`[poe] Loaded ${customModelIds.length} custom bot(s): ${customModelIds.join(", ")}`);
+	}
+
 	// Experimental provider for Poe chat models that reject native tool calling.
 	// The custom stream handler converts pi tools to prompt instructions and parses
 	// model-emitted JSON back into pi tool calls. Reliability varies by model.
 	// Uses openai-completions API type for compatibility with existing stream/display logic.
-	if (emulatedModels.length > 0) {
+	// Includes both emulated models and custom models.
+	const allEmulatedModels = [...emulatedModels, ...customModels];
+	if (allEmulatedModels.length > 0) {
 		pi.registerProvider("poe-emulated", {
 			baseUrl: "https://api.poe.com/v1",
 			apiKey: "POE_API_KEY",
 			api: "openai-completions",
-			models: emulatedModels,
+			models: allEmulatedModels,
 			authHeader: true,
 			oauth: poeOAuthConfig(),
 			streamSimple: streamPoeEmulatedTools,
@@ -177,9 +225,9 @@ export default async function (pi: ExtensionAPI) {
 	// -------------------------------------------------------------------
 
 	pi.registerCommand("poe", {
-		description: "Poe integration: balance, history, models, free, refresh, account",
+		description: "Poe integration: balance, history, models, free, refresh, account, add",
 		getArgumentCompletions(prefix: string) {
-			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout"];
+			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout", "add"];
 			return subs
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s }));
@@ -456,9 +504,32 @@ export default async function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "add": {
+					// Register a custom/community bot ID not in the standard catalog
+					const modelId = rest.trim();
+					if (!modelId) {
+						ctx.ui.notify(
+							"Usage: /poe add <model-id>\n" +
+							"Register a custom/community bot from Poe that may not appear in the catalog.\n" +
+							"Example: /poe add GLM-5-FWAI",
+							"info"
+						);
+					} else {
+						// Persist to config file - model will be available after /reload
+						await saveCustomModel(modelId);
+
+						ctx.ui.notify(
+							`Custom bot "${modelId}" saved. Run /reload to use it.\n` +
+							`Then: pi --provider poe --model ${modelId}`,
+							"success"
+						);
+					}
+					break;
+				}
+
 				default: {
 					ctx.ui.notify(
-						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout",
+						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout | add",
 						"info"
 					);
 					break;
