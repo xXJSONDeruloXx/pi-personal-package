@@ -131,6 +131,20 @@ describe("streamPoeEmulatedTools", () => {
 		expect(events.at(-1)).toMatchObject({ type: "done", reason: "toolUse" });
 	});
 
+	it("repairs native-agent-style tool preambles", async () => {
+		const fetchMock = mockFetchResponses([
+			"Let me check what model you're using and see if the emulated provider is active:",
+			'<tool_calls>[{"name":"ls","arguments":{"path":"."}}]</tool_calls>',
+		]);
+		const context: Context = { messages: [{ role: "user", content: "check the repo", timestamp: 0 }], tools: [lsTool] };
+		const events = await collectStream(streamPoeEmulatedTools(model, context, { apiKey: "test" }));
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+		expect(secondBody.messages.at(-1).content).toContain("did not include a <tool_calls> block");
+		expect(events.at(-1)).toMatchObject({ type: "done", reason: "toolUse" });
+	});
+
 	it("does not repair ordinary final text", async () => {
 		const fetchMock = mockFetchResponses(["No tool needed."]);
 		const context: Context = { messages: [{ role: "user", content: "say hi", timestamp: 0 }], tools: [lsTool] };

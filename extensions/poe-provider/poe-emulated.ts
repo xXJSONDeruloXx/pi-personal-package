@@ -204,6 +204,21 @@ function looksLikeFailedToolCall(text: string): boolean {
 		|| lower.includes('"name"') && (lower.startsWith("{") || lower.startsWith("["));
 }
 
+function looksLikeToolIntentPreamble(text: string, tools?: Tool[]): boolean {
+	if (!tools || tools.length === 0) return false;
+	const normalized = text.trim().toLowerCase();
+	if (normalized.length > 500) return false;
+
+	// Non-native models often answer with a native-agent-style preamble like
+	// "Let me check that:" and then stop, instead of emitting the tool-call JSON.
+	// Treat those short action promises as repairable tool-call failures.
+	const intentPatterns = [
+		/^(let me|i(?:'|’)ll|i will|i can|i should|i need to|i(?:'|’)m going to)\b[\s\S]{0,240}\b(check|inspect|look|list|read|open|search|grep|find|run|execute|test|verify|see)\b/,
+		/\b(i(?:'|’)ll|i will|let me)\b[\s\S]{0,120}\b(use|call|run)\b[\s\S]{0,80}\b(tool|command|bash|shell)\b/,
+	];
+	return intentPatterns.some((pattern) => pattern.test(normalized));
+}
+
 function buildRepairMessage(responseText: string, errors: string[]): Record<string, unknown> {
 	const errorText = errors.length > 0 ? errors.join("\n") : "The response was not valid tool-call JSON.";
 	return {
@@ -338,8 +353,10 @@ export function streamPoeEmulatedTools(
 
 				const parsedCalls = parseEmulatedToolCalls(text);
 				if (!parsedCalls) {
-					lastErrors = ["Could not parse a <tool_calls> JSON block."];
-					if (!looksLikeFailedToolCall(text)) {
+					lastErrors = [looksLikeToolIntentPreamble(text, context.tools)
+						? "The response says you need to inspect, run, read, search, or verify something, but it did not include a <tool_calls> block."
+						: "Could not parse a <tool_calls> JSON block."];
+					if (!looksLikeFailedToolCall(text) && !looksLikeToolIntentPreamble(text, context.tools)) {
 						emitText(stream, output, text);
 						stream.end();
 						return;
