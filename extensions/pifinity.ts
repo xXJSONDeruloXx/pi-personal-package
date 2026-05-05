@@ -11,9 +11,13 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 
 const WIDGET_KEY = "pifinity";
 const ENTRY_TYPE = "pifinity-state";
+const CONFIG_PATH = join(homedir(), ".pi", "agent", "pifinity-config.json");
 
 // -- State -------------------------------------------------------------------
 
@@ -37,6 +41,30 @@ function persistState(ctx: ExtensionContext) {
 }
 
 let pi: ExtensionAPI;
+
+// -- Cross-session config file persistence --------------------------------
+
+type ConfigFile = { message?: string };
+
+function loadConfig(): string | null {
+	try {
+		const raw = readFileSync(CONFIG_PATH, "utf-8");
+		const cfg = JSON.parse(raw) as ConfigFile;
+		if (typeof cfg.message === "string" && cfg.message.trim()) return cfg.message;
+	} catch {
+		// File doesn't exist yet or invalid JSON -- that's fine
+	}
+	return null;
+}
+
+function saveConfig(msg: string) {
+	try {
+		mkdirSync(dirname(CONFIG_PATH), { recursive: true });
+		writeFileSync(CONFIG_PATH, JSON.stringify({ message: msg }, null, 2), "utf-8");
+	} catch (err) {
+		console.error("[pifinity] failed to save config:", err);
+	}
+}
 
 function restoreFromEntries(ctx: ExtensionContext) {
 	const entries = ctx.sessionManager.getEntries();
@@ -131,9 +159,11 @@ function wasAborted(messages: any[]): boolean {
 export default function (api: ExtensionAPI) {
 	pi = api;
 
-	// Restore message/counter from session entries
+	// Restore message from config file (cross-session) first, then session entries
 	pi.on("session_start", async (_event, ctx) => {
 		latestCtx = ctx;
+		const cfgMsg = loadConfig();
+		if (cfgMsg) message = cfgMsg;
 		restoreFromEntries(ctx);
 		enabled = false;
 		paused = false;
@@ -233,6 +263,7 @@ export default function (api: ExtensionAPI) {
 				return;
 			}
 			message = newMsg;
+			saveConfig(message);
 			persistState(ctx);
 			applyWidget(ctx);
 			ctx.ui.notify(`pifinity message set to: "${message}"`, "info");
