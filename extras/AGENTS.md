@@ -23,8 +23,9 @@
 - When opening a PR for GameNative, always use the repo's PR template (`.github/pull_request_template.md`) and open as a **draft**.
   - By default, open the PR against the user's `origin` fork (`xXJSONDeruloXx/GameNative`), not `utkarshdalal/GameNative`, unless the user explicitly asks to target upstream.
   - Push the branch to `origin` first.
-  - Fill the template like a concise human, not a placeholder bot:
-    - **Description**: write a short, direct explanation of the bug/change in plain language. Prefer 1–3 brief sentences or a tiny paragraph. Use `WIP` only if the user explicitly wants that or no meaningful summary is available yet.
+  - Fill the template in the user's voice — casual, direct, no stiff formatting:
+    - **Description**: plain paragraphs, no bold/italic formatting, no em dashes, no markdown headers inside the description body. Write like you're explaining the change to a teammate in a chat message, not authoring a spec doc. Avoid bullet-point lists; use short consecutive paragraphs instead.
+    - **Discord links**: when referencing Discord reports, use raw URLs (one per line) under a `### Discord reports` heading. Do not use markdown named links (`[title](url)`) — just paste the URL.
     - **Recording**: attach the actual GitHub-uploaded recording/video, not a local filesystem path. If a before/after screenshot helps explain the issue, attach that too.
     - **Type of Change**: check the boxes that actually apply.
     - **Checklist**: check items that are actually true, especially when a recording is attached and the change clearly fits project scope; leave anything uncertain unchecked.
