@@ -2,8 +2,8 @@
  * pifinity: Infinite auto-continue extension for pi.
  *
  * Keeps the agent looping by sending a follow-up message after each agent_end.
- * Only stops when you run /pifinity off. Steer freely -- pifinity will skip
- * one cycle after your steer so it doesn't bury your input.
+ * Only stops on /pifinity off. Esc pauses it until you send your next message.
+ * Steer freely -- pifinity skips one cycle so it doesn't bury your input.
  *
  * Commands:
  *   /pifinity [on|off]       - toggle or explicitly set
@@ -18,6 +18,7 @@ const ENTRY_TYPE = "pifinity-state";
 // -- State -------------------------------------------------------------------
 
 let enabled = false;
+let paused = false;
 let message = "continue";
 let turnCount = 0;
 let skipNext = false;
@@ -68,10 +69,13 @@ function applyWidget(ctx: ExtensionContext) {
 
 	ctx.ui.setWidget(WIDGET_KEY, (_tui, theme) => ({
 		render(width: number): string[] {
-			const icon = theme.fg("accent", "pifinity");
+			const label = theme.fg("accent", "pifinity");
+			const stateTag = paused
+				? theme.fg("warning", "paused")
+				: theme.fg("success", "on");
 			const msg = theme.fg("muted", `"${message}"`);
 			const turns = theme.fg("dim", `turn #${turnCount}`);
-			const line = `${icon} ${msg}  ${turns}`;
+			const line = `${label} ${stateTag} ${msg}  ${turns}`;
 			if (line.length > width) return [line.slice(0, width)];
 			return [line];
 		},
@@ -83,6 +87,7 @@ function applyWidget(ctx: ExtensionContext) {
 
 function enable(ctx: ExtensionContext) {
 	enabled = true;
+	paused = false;
 	turnCount = 0;
 	skipNext = false;
 	applyWidget(ctx);
@@ -97,9 +102,28 @@ function enable(ctx: ExtensionContext) {
 
 function disable(ctx: ExtensionContext) {
 	enabled = false;
+	paused = false;
 	applyWidget(ctx);
 	persistState(ctx);
 	ctx.ui.notify("pifinity: OFF", "info");
+}
+
+function pause(ctx: ExtensionContext) {
+	paused = true;
+	applyWidget(ctx);
+	ctx.ui.notify("pifinity: paused (send a message to resume)", "info");
+}
+
+// -- Helpers -----------------------------------------------------------------
+
+/** Find the last assistant message's stopReason from agent_end messages */
+function wasAborted(messages: any[]): boolean {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]?.role === "assistant") {
+			return messages[i]?.stopReason === "aborted";
+		}
+	}
+	return false;
 }
 
 // -- Extension entry point ---------------------------------------------------
@@ -112,6 +136,7 @@ export default function (api: ExtensionAPI) {
 		latestCtx = ctx;
 		restoreFromEntries(ctx);
 		enabled = false;
+		paused = false;
 		applyWidget(ctx);
 	});
 
@@ -119,19 +144,34 @@ export default function (api: ExtensionAPI) {
 		latestCtx = undefined;
 	});
 
-	// Track when user sends input so we can skip one pifinity cycle
-	// after their steer -- otherwise "continue" buries their message
+	// Track user input:
+	// - If paused: unpause (their message goes through, pifinity resumes after)
+	// - If active: skip one cycle so "continue" doesn't bury their steer
 	pi.on("input", async (event, _ctx) => {
-		if (event.source === "interactive" && enabled) {
+		if (event.source !== "interactive") return { action: "continue" };
+
+		if (paused) {
+			paused = false;
+			// Don't set skipNext -- pifinity should fire on the next agent_end
+		} else if (enabled) {
 			skipNext = true;
 		}
+
 		return { action: "continue" };
 	});
 
 	// The loop: send continue after agent finishes
-	pi.on("agent_end", async (_event, ctx) => {
+	pi.on("agent_end", async (event, ctx) => {
 		latestCtx = ctx;
 		if (!enabled) return;
+
+		// Esc was hit -- pause instead of continuing
+		if (wasAborted(event.messages)) {
+			pause(ctx);
+			return;
+		}
+
+		if (paused) return;
 
 		if (skipNext) {
 			skipNext = false;
