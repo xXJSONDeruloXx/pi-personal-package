@@ -6,25 +6,6 @@ export default async function (pi) {
     return;
   }
 
-  const REASONING_MODELS = new Set([
-    "deepseek-ai/deepseek-v4-flash",
-    "deepseek-ai/deepseek-v4-pro",
-    "moonshotai/kimi-k2-thinking",
-    "moonshotai/kimi-k2.6",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
-    "qwen/qwen3-next-80b-a3b-thinking",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-  ]);
-
-  const THINKING_MODELS = new Set([
-    "deepseek-ai/deepseek-v4-flash",
-    "deepseek-ai/deepseek-v4-pro",
-    "qwen/qwen3-next-80b-a3b-thinking",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-  ]);
-
   let models;
   try {
     const response = await fetch("https://integrate.api.nvidia.com/v1/models", {
@@ -42,18 +23,14 @@ export default async function (pi) {
     for (const model of payload.data ?? []) {
       if (seen.has(model.id)) continue;
       seen.add(model.id);
-      const isReasoning = REASONING_MODELS.has(model.id);
       models.push({
         id: model.id,
         name: model.id,
-        reasoning: isReasoning,
+        reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: model.context_length ?? 128000,
         maxTokens: model.max_model_len ?? 4096,
-        ...(isReasoning && THINKING_MODELS.has(model.id)
-          ? { compat: { thinkingFormat: "deepseek" } }
-          : {}),
       });
     }
   } catch (error) {
