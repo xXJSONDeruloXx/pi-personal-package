@@ -77,6 +77,7 @@ function restoreFromEntries(ctx: ExtensionContext) {
 		) {
 			const data = (entry as any).data as PersistedState | undefined;
 			if (data) {
+				enabled = data.enabled ?? false;
 				message = data.message ?? "continue";
 				turnCount = data.turnCount ?? 0;
 			}
@@ -160,14 +161,19 @@ export default function (api: ExtensionAPI) {
 	pi = api;
 
 	// Restore message from config file (cross-session) first, then session entries
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		latestCtx = ctx;
 		const cfgMsg = loadConfig();
 		if (cfgMsg) message = cfgMsg;
-		restoreFromEntries(ctx);
+		// Reset first; restoreFromEntries will re-enable if state was saved
 		enabled = false;
 		paused = false;
+		restoreFromEntries(ctx);
 		applyWidget(ctx);
+		// On /reload, if pifinity was enabled and agent is idle, re-kick the loop
+		if (enabled && !paused && event.reason === "reload" && ctx.isIdle()) {
+			pi.sendUserMessage(message);
+		}
 	});
 
 	pi.on("session_shutdown", () => {
@@ -188,6 +194,31 @@ export default function (api: ExtensionAPI) {
 		}
 
 		return { action: "continue" };
+	});
+
+	// Ensure pifinity state survives compaction by persisting it just before the cut.
+	pi.on("session_before_compact", async (_event, ctx) => {
+		if (enabled || turnCount > 0) {
+			persistState(ctx);
+		}
+		// Return undefined → proceed with default compaction
+	});
+
+	// After compaction, re-kick the loop if the agent went idle.
+	// Auto-compaction runs concurrently with pifinity's fire-and-forget sendUserMessage
+	// (triggered from agent_end), and the two can race — leaving the loop stalled.
+	pi.on("session_compact", async (_event, ctx) => {
+		if (!enabled || paused) return;
+		// Re-persist state so it stays in the kept range for future compactions
+		persistState(ctx);
+		applyWidget(ctx);
+		// If no turn is running and nothing is queued, pifinity's "continue" was
+		// lost in the compaction race. Re-fire it now.
+		if (ctx.isIdle() && !ctx.hasPendingMessages()) {
+			turnCount++;
+			persistState(ctx);
+			pi.sendUserMessage(message);
+		}
 	});
 
 	// The loop: send continue after agent finishes
