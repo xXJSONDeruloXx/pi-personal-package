@@ -44,23 +44,40 @@ let pi: ExtensionAPI;
 
 // -- Cross-session config file persistence --------------------------------
 
-type ConfigFile = { message?: string };
+type ConfigFile = { message?: string; mdPath?: string };
 
-function loadConfig(): string | null {
+function loadMdFile(mdPath: string): string | null {
+	try {
+		return readFileSync(mdPath, "utf-8");
+	} catch (err) {
+		console.error(`[pifinity] failed to load md file ${mdPath}:`, err);
+		return null;
+	}
+}
+
+function loadConfig(): { message: string | null; mdPath: string | null } {
 	try {
 		const raw = readFileSync(CONFIG_PATH, "utf-8");
 		const cfg = JSON.parse(raw) as ConfigFile;
-		if (typeof cfg.message === "string" && cfg.message.trim()) return cfg.message;
+		// If mdPath is set, read the file content
+		if (cfg.mdPath) {
+			const mdContent = loadMdFile(cfg.mdPath);
+			if (mdContent) return { message: mdContent, mdPath: cfg.mdPath };
+		}
+		if (typeof cfg.message === "string" && cfg.message.trim()) {
+			return { message: cfg.message, mdPath: null };
+		}
 	} catch {
 		// File doesn't exist yet or invalid JSON -- that's fine
 	}
-	return null;
+	return { message: null, mdPath: null };
 }
 
-function saveConfig(msg: string) {
+function saveConfig(msg: string, mdPath?: string) {
 	try {
 		mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-		writeFileSync(CONFIG_PATH, JSON.stringify({ message: msg }, null, 2), "utf-8");
+		const cfg: ConfigFile = mdPath ? { mdPath } : { message: msg };
+		writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), "utf-8");
 	} catch (err) {
 		console.error("[pifinity] failed to save config:", err);
 	}
@@ -163,8 +180,8 @@ export default function (api: ExtensionAPI) {
 	// Restore message from config file (cross-session) first, then session entries
 	pi.on("session_start", async (event, ctx) => {
 		latestCtx = ctx;
-		const cfgMsg = loadConfig();
-		if (cfgMsg) message = cfgMsg;
+		const cfg = loadConfig();
+		if (cfg.message) message = cfg.message;
 		// Reset first; restoreFromEntries will re-enable if state was saved
 		enabled = false;
 		paused = false;
@@ -236,7 +253,8 @@ export default function (api: ExtensionAPI) {
 
 		if (skipNext) {
 			skipNext = false;
-			return;
+			// Don't return — fall through and re-kick the loop.
+			// The user got their one steered turn; pifinity resumes immediately after.
 		}
 
 		turnCount++;
@@ -286,7 +304,7 @@ export default function (api: ExtensionAPI) {
 	});
 
 	pi.registerCommand("pifinity-msg", {
-		description: "Set the pifinity continue message",
+		description: "Set the pifinity continue message (inline text)",
 		handler: async (args, ctx) => {
 			const newMsg = args.trim();
 			if (!newMsg) {
@@ -298,6 +316,37 @@ export default function (api: ExtensionAPI) {
 			persistState(ctx);
 			applyWidget(ctx);
 			ctx.ui.notify(`pifinity message set to: "${message}"`, "info");
+		},
+	});
+
+	pi.registerCommand("pifinity-md", {
+		description: "Set the pifinity continue message from an MD file (provide absolute or relative path)",
+		handler: async (args, ctx) => {
+			const mdPath = args.trim();
+			if (!mdPath) {
+				// Show current status
+				const cfg = loadConfig();
+				if (cfg.mdPath) {
+					ctx.ui.notify(`pifinity MD file: ${cfg.mdPath}`, "info");
+				} else {
+					ctx.ui.notify("pifinity: no MD file set (using inline message)", "info");
+				}
+				return;
+			}
+			// Resolve relative paths
+			const resolvedPath = mdPath.startsWith("/") 
+				? mdPath 
+				: join(process.cwd(), mdPath);
+			const content = loadMdFile(resolvedPath);
+			if (!content) {
+				ctx.ui.notify(`Failed to load MD file: ${resolvedPath}`, "error");
+				return;
+			}
+			message = content;
+			saveConfig("", resolvedPath);  // Save path, not content
+			persistState(ctx);
+			applyWidget(ctx);
+			ctx.ui.notify(`pifinity message set from MD file: ${resolvedPath}`, "info");
 		},
 	});
 }
