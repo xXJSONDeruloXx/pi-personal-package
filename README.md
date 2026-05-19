@@ -1,25 +1,21 @@
 # pi-personal-package
 
-Personal Pi package for non-work machines.
+`pi-personal-package` is a bundled Pi package for a personal setup.
 
-This repo is the **single source of truth** for your personal Pi setup:
-
-- personal extensions
-- personal skills
-- selected third-party Pi packages bundled into one install
-- lightweight config examples and notes
-
-It is intentionally **not** a mirror of the work-machine `pi-miyagi` stack. The goal is a clean personal distro with the best generally useful ergonomics, without corporate-specific workflows.
+It gives you one repo that installs:
+- custom Pi extensions from this repo
+- custom Pi skills from this repo
+- a prompt pack
+- a curated set of bundled third-party Pi packages
+- a few extra config/reference files kept alongside the package
 
 ## Install
-
-If the repo is private, install over SSH:
 
 ```bash
 pi install git:git@github.com:xXJSONDeruloXx/pi-personal-package
 ```
 
-If the repo is public, this also works:
+Or:
 
 ```bash
 pi install git:github.com/xXJSONDeruloXx/pi-personal-package
@@ -31,34 +27,71 @@ Update later with:
 pi update
 ```
 
-## What this package includes
+## What this repo contains
 
-### Local extensions in this repo
+### `extensions/`
+Local Pi extensions, including:
+- chat/title helpers
+- diff and upstream/base context helpers
+- notifications
+- provider/widget controls
+- usage widgets
+- UI tweaks like banners and token-stat hiding
+- a custom `poe-provider/` integration with tests and model/client helpers
+
+Notable files:
 - `extensions/auto-title.ts`
+- `extensions/codex-usage-widget.ts`
 - `extensions/copilot-usage-widget.ts`
 - `extensions/diff.ts`
-- `extensions/kurt-klaw-banner.ts` (Kurt Klaw startup banner — first message in chat)
+- `extensions/hide-token-stats.ts`
+- `extensions/kurt-klaw-banner.ts`
 - `extensions/notifications.ts`
+- `extensions/pifinity.ts`
+- `extensions/provider-widget-controls.ts`
 - `extensions/upstream-master-diff-footer.ts`
+- `extensions/zai-usage-widget.ts`
+- `extensions/poe-provider/`
 
-### Local skills in this repo
+### `skills/`
+Local Pi skills, including:
+- CI fix/watch workflows
+- PR conflict and review monitoring
+- GameNative debugging/research helpers
+- media compression/export helpers
+- a local Ralph wrapper
+
+Included skills:
 - `skills/ci-fix-watch/`
 - `skills/gamenative-cloud-save-debug/`
 - `skills/gamenative-discord-research/`
+- `skills/gamenative-screen-recording-export/`
 - `skills/media-under-size/`
+- `skills/pr-conflict-check/`
 - `skills/pr-review-watch/`
-- `skills/ralph-wiggum/` (compatibility wrapper for the bundled Ralph skill)
+- `skills/ralph-wiggum/`
 
-### Bundled third-party extensions and skills
-This package also bundles a curated set of reusable Pi packages so personal machines can be bootstrapped from a single install.
+### `prompts/`
+Prompt files loaded by Pi.
+- `prompts/sync-upstream.md`
 
-#### Bundled extensions
+### `extras/`
+Versioned extras that live in the repo but are not the main package entrypoints.
+- `extras/AGENTS.md`
+- `extras/settings.example.json`
+
+### `scripts/`
+Project helper scripts used during development.
+
+## Bundled third-party packages
+
+This package also bundles a set of Pi packages so they install together:
 - `@0xkobold/pi-autoupdate`
 - `@aliou/pi-processes`
-- `@calesennett/pi-codex-usage`
 - `@ifi/pi-extension-subagents`
 - `@tmustier/pi-files-widget`
 - `@tmustier/pi-ralph-wiggum`
+- `latchkey`
 - `pi-codex-web-search`
 - `pi-command-center`
 - `pi-computer-use`
@@ -68,87 +101,6 @@ This package also bundles a curated set of reusable Pi packages so personal mach
 - `pi-stash`
 - `pi-tool-display`
 
-#### Bundled skills
-- `@aliou/pi-processes`
-- `@tmustier/pi-ralph-wiggum`
-- `latchkey`
-- `pi-interactive-shell`
+## Repo purpose
 
-## Design choices
-
-### Personal-focused, not work-cloned
-This package intentionally keeps:
-- GameNative-specific research/debugging skills
-- personal Copilot usage status
-- generic Pi UX improvements learned from work
-- selected autonomy / process / TUI tools from the work machine
-- an in-terminal file browser/viewer for fast local inspection
-
-It intentionally leaves out:
-- Jira / enterprise workflow glue
-- corporate Slack / Outlook / Teams packaging
-- Databricks-specific work setup
-- work-only operational skills from `pi-miyagi`
-
-### Base-aware diff widget
-The diff widget appears above the prompt bar and prefers upstream when it exists, then falls back to origin.
-That makes it friendlier for personal repos that track `upstream/master` while still working fine in ordinary origin-only repos.
-
-### Phone shell moved out
-The touch-first phone shell now lives in the dedicated `pi-phone-3gs` package instead of this general personal package.
-That keeps `pi-personal-package` focused on broadly useful personal Pi ergonomics while letting the phone UI evolve as its own product surface.
-
-If you want the phone shell, install:
-
-```bash
-pi install git:git@github.com:xXJSONDeruloXx/pi-phone-3gs
-```
-
-### Subagent choice
-This package bundles `@ifi/pi-extension-subagents` as the default subagent system.
-It is the richer option and a better long-term personal default than carrying multiple overlapping subagent packages.
-
-### Files widget note
-`@tmustier/pi-files-widget` expects some local CLI tools for best output quality:
-
-```bash
-brew install bat git-delta glow
-```
-
-## Extras kept in the repo
-
-These are versioned here for sync, but not automatically loaded by Pi:
-
-- `extras/AGENTS.md`
-- `extras/settings.example.json`
-
-## Local development
-
-This repo can also be used as a local path package during development:
-
-```bash
-pi install /absolute/path/to/pi-personal-package
-```
-
-Then after edits, run `/reload` in Pi.
-
-Note: this repo intentionally does **not** commit a `package-lock.json`. For this package, git installs plus `bundledDependencies` can leave bundled packages as empty directories, which prevents the third-party Pi extensions and skills from loading.
-
-Typical workflow:
-
-```bash
-cd /Users/dhimebauch/Developer/personal/pi-personal-package
-npm install --package-lock=false
-npm run check
-git status
-git add .
-git commit -m "feat: update personal pi package"
-git push
-```
-
-## Sanity check
-
-```bash
-npm install --package-lock=false
-npm run check
-```
+This repo is the package source for a Pi setup that combines local extensions, local skills, prompts, and bundled dependencies in one installable package.

@@ -44,6 +44,13 @@
   - After the user replies with a number, carry out that option as specified without making them restate the plan, unless a new ambiguity or destructive choice still needs confirmation.
 - Proactively update this global `AGENTS.md` when the user corrects agent behavior or when stable usage patterns emerge from repeated interactions.
 
+## Bash safety
+- ALWAYS set a `timeout` on bash commands that run executables, start servers, or do anything that might hang. Default: 30 seconds. Use `timeout <seconds>` before the command.
+- Example: `timeout 8 ./build/mybinary arg1` not `./build/mybinary arg1`
+- Never run a binary without a timeout — getting stuck wastes entire turns.
+- For longer-running commands (builds, tests), set an appropriate timeout (e.g. 120s for cmake builds).
+- macOS `timeout` is available via the shell alias in `~/.zshrc`.
+
 ## Computer-use tools
 
 - Mac Mini Agent local repository path: `/Users/danhimebauch/Developer/mac-mini-agent`
