@@ -1,3 +1,14 @@
+const MODEL_OVERRIDES = {
+  // NVIDIA's model catalog currently omits context metadata for this model.
+  // The effective limit on this route behaves like a prompt-token window, so
+  // keep the registered context in sync and track context usage against prompt
+  // tokens so pi compacts before that window is exceeded.
+  "z-ai/glm-5.1": {
+    contextWindow: 193000,
+    trackPromptTokens: true,
+  },
+};
+
 export default async function (pi) {
   const apiKey = process.env.NVIDIA_API_KEY;
 
@@ -23,13 +34,14 @@ export default async function (pi) {
     for (const model of payload.data ?? []) {
       if (seen.has(model.id)) continue;
       seen.add(model.id);
+      const override = MODEL_OVERRIDES[model.id];
       models.push({
         id: model.id,
         name: model.id,
         reasoning: true,
         input: ["text"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: model.context_length ?? 128000,
+        contextWindow: override?.contextWindow ?? model.context_length ?? 128000,
         maxTokens: model.max_model_len ?? 4096,
       });
     }
@@ -53,6 +65,29 @@ export default async function (pi) {
       supportsDeveloperRole: false,
     },
     models,
+  });
+
+  pi.on("message_end", async (event) => {
+    const message = event.message;
+    if (message.role !== "assistant") return;
+    if (message.provider !== "nvidia") return;
+    const override = MODEL_OVERRIDES[message.model];
+    if (!override?.trackPromptTokens) return;
+    if (message.stopReason === "error" || message.stopReason === "aborted") return;
+    if (!message.usage) return;
+
+    const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
+    if (promptTokens <= 0 || message.usage.totalTokens === promptTokens) return;
+
+    return {
+      message: {
+        ...message,
+        usage: {
+          ...message.usage,
+          totalTokens: promptTokens,
+        },
+      },
+    };
   });
 
   console.log(`✓ NVIDIA provider registered (${models.length} models)`);
