@@ -22,7 +22,7 @@
     "@ifi/pi-extension-subagents": "^0.4.4",
     "@tmustier/pi-files-widget": "^0.1.15",
     "latchkey": "^2.5.5",
-    "pi-extensions": "git+https://github.com/xXJSONDeruloXx/pi-extensions-ralph.git#80018d38395b4410ae9afcebdb862665255a65fa",
+    "pi-extensions": "git+https://github.com/xXJSONDeruloXx/pi-extensions-ralph.git#5a9439a78f26715f34b2d1e447727da1a96c4957",
     "pi-codex-web-search": "^0.1.5",
     "pi-command-center": "^0.1.4",
     "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git",
