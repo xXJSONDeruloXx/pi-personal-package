@@ -117,7 +117,7 @@ export default function (pi: ExtensionAPI) {
 	function migrateState(raw: Partial<LoopState> & { name: string }): LoopState {
 		if (!raw.status) raw.status = raw.active ? "active" : "paused";
 		raw.active = raw.status === "active";
-		if (raw.compactEachRound === undefined) raw.compactEachRound = false;
+		if (raw.compactEachRound === undefined) raw.compactEachRound = true;
 		// Migrate old field names
 		if ("reflectEveryItems" in raw && !raw.reflectEvery) {
 			raw.reflectEvery = (raw as any).reflectEveryItems;
@@ -318,7 +318,7 @@ export default function (pi: ExtensionAPI) {
 			itemsPerIteration: 0,
 			reflectEvery: 0,
 			reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
-			compactEachRound: false,
+			compactEachRound: true,
 		};
 
 		for (let i = 0; i < tokens.length; i++) {
@@ -338,6 +338,8 @@ export default function (pi: ExtensionAPI) {
 				i++;
 			} else if (tok === "--compact-each-round") {
 				result.compactEachRound = true;
+			} else if (tok === "--no-compact-each-round") {
+				result.compactEachRound = false;
 			} else if (!tok.startsWith("--")) {
 				result.name = tok;
 			}
@@ -352,7 +354,7 @@ export default function (pi: ExtensionAPI) {
 			const args = parseArgs(rest);
 			if (!args.name) {
 				ctx.ui.notify(
-					"Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N] [--compact-each-round]",
+					"Usage: /ralph start <name|path> [--items-per-iteration N] [--reflect-every N] [--max-iterations N] [--no-compact-each-round]",
 					"warning",
 				);
 				return;
@@ -610,17 +612,17 @@ Commands:
   /ralph-stop                         Stop active loop (idle only)
 
 Options:
-  --items-per-iteration N  Suggest N items per turn (prompt hint)
-  --reflect-every N        Reflect every N iterations
-  --max-iterations N       Stop after N iterations (default 50)
-  --compact-each-round     Compact context before queuing each new round
+  --items-per-iteration N     Suggest N items per turn (prompt hint)
+  --reflect-every N           Reflect every N iterations
+  --max-iterations N          Stop after N iterations (default 50)
+  --no-compact-each-round     Disable per-round compaction (enabled by default)
 
 To stop: press ESC to interrupt, then run /ralph-stop when idle
 
 Examples:
   /ralph start my-feature
   /ralph start review --items-per-iteration 5 --reflect-every 10
-  /ralph start sweep --compact-each-round`;
+  /ralph start sweep --no-compact-each-round`;
 
 	pi.registerCommand("ralph", {
 		description: "Ralph Wiggum - long-running development loops",
@@ -703,7 +705,7 @@ Examples:
 				itemsPerIteration: params.itemsPerIteration ?? 0,
 				reflectEvery: params.reflectEvery ?? 0,
 				reflectInstructions: DEFAULT_REFLECT_INSTRUCTIONS,
-				compactEachRound: params.compactEachRound ?? false,
+				compactEachRound: params.compactEachRound ?? true,
 				active: true,
 				status: "active",
 				startedAt: new Date().toISOString(),
