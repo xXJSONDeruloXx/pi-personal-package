@@ -24,7 +24,7 @@ ralph_start({
 2. Work on the task and update the file each iteration.
 3. Record verification evidence (commands run, file paths, outputs) in the task file.
 4. By default, Ralph compacts context before queuing the next iteration unless `compactEachRound: false` is used.
-5. Call `ralph_done` to proceed to the next iteration.
+5. **Call the `ralph_done` tool** to proceed to the next iteration (see below).
 6. Output `<promise>COMPLETE</promise>` when finished.
 7. Stop when complete or when max iterations is reached (default 50).
 
@@ -33,6 +33,7 @@ ralph_start({
 - `/ralph start <name|path> [--no-compact-each-round]` - Start a new loop.
 - `/ralph resume <name>` - Resume loop.
 - `/ralph stop` - Pause loop (when agent idle).
+- `/ralph next` - Manually advance to next iteration (fallback when `ralph_done` tool call fails).
 - `/ralph-stop` - Stop active loop (idle only).
 - `/ralph status` - Show loops.
 - `/ralph list --archived` - Show archived loops.
@@ -65,6 +66,28 @@ Brief description.
 ## Notes
 (Update with progress, decisions, blockers)
 ```
+
+## Calling `ralph_done` (Critical)
+
+`ralph_done` is a **tool call** — not text in your response. Invoke it through the tool-calling mechanism with an empty arguments object `{}`.
+
+**When to call it:**
+- After completing work in the current iteration
+- After updating the `.ralph/<name>.md` task file with progress
+- **Never** output the word "ralph_done" as text in your response
+- **Never** wrap it in code blocks, quotes, or markdown
+
+**What happens next:**
+1. Pi receives the tool call and advances the loop counter
+2. Context is compacted (if `compactEachRound: true`)
+3. You receive the next iteration's task prompt
+
+**Common mistakes to avoid:**
+- ❌ Writing "I'll call ralph_done now" as text (invoke the tool instead)
+- ❌ Outputting `ralph_done()` or `ralph_done({})` as text/code (these are tool invocations, not response text)
+- ❌ Confusing `ralph_done` with `<promise>COMPLETE</promise>`:
+  - `ralph_done` tool call = advance to next iteration (loop continues)
+  - `<promise>COMPLETE</promise>` text = end the entire loop (all done)
 
 ## Best Practices
 

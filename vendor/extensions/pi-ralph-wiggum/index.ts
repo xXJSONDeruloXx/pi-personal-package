@@ -561,6 +561,57 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`${label}:\n${loops.map((l) => formatLoop(l)).join("\n")}`, "info");
 		},
 
+		next(_rest, ctx) {
+			// Manual fallback for ralph_done: advance the loop via slash command.
+			// Useful when the model's tool call is mangled by the provider (e.g.,
+			// NVIDIA/z-ai/glm-5.1 empty tool calls).
+			if (!currentLoop) {
+				const active = listLoops(ctx).find((l) => l.status === "active");
+				if (!active) {
+					if (ctx.hasUI) ctx.ui.notify("No active Ralph loop", "warning");
+					return;
+				}
+				currentLoop = active.name;
+			}
+			const state = loadState(ctx, currentLoop);
+			if (!state || state.status !== "active") {
+				if (ctx.hasUI) ctx.ui.notify("Ralph loop is not active", "warning");
+				return;
+			}
+			if (ctx.hasPendingMessages()) {
+				if (ctx.hasUI)
+					ctx.ui.notify("Pending messages already queued. Skipping /ralph next.", "warning");
+				return;
+			}
+			state.iteration++;
+			if (state.maxIterations > 0 && state.iteration > state.maxIterations) {
+				completeLoop(
+					ctx,
+					state,
+					`───────────────────────────────────────────────────────────────────────\n⚠️ RALPH LOOP STOPPED: ${state.name} | Max iterations (${state.maxIterations}) reached\n───────────────────────────────────────────────────────────────────────`,
+				);
+				return;
+			}
+			const needsReflection =
+				state.reflectEvery > 0 && (state.iteration - 1) % state.reflectEvery === 0;
+			if (needsReflection) state.lastReflectionAt = state.iteration;
+			saveState(ctx, state);
+			updateUI(ctx);
+			const content = tryRead(path.resolve(ctx.cwd, state.taskFile));
+			if (!content) {
+				pauseLoop(ctx, state);
+				if (ctx.hasUI) ctx.ui.notify(`Error: Could not read task file: ${state.taskFile}`, "error");
+				return;
+			}
+			queueNextIteration(ctx, state, content, needsReflection);
+			if (ctx.hasUI)
+				ctx.ui.notify(
+					`Advanced to iteration ${state.iteration}${state.compactEachRound ? " (compacting...)" : ""}`,
+					"info",
+				);
+		},
+		
+
 		nuke(rest, ctx) {
 			const force = rest.trim() === "--yes";
 			const warning =
@@ -603,7 +654,8 @@ Commands:
   /ralph start <name|path> [options]  Start a new loop
   /ralph stop                         Pause current loop
   /ralph resume <name>                Resume a paused loop
-  /ralph status                       Show all loops
+  /ralph next                          Advance to next iteration (manual ralph_done)
+ /ralph status                       Show all loops
   /ralph cancel <name>                Delete loop state
   /ralph archive <name>               Move loop to archive
   /ralph clean [--all]                Clean completed loops

@@ -13,7 +13,7 @@ export default async function (pi) {
   const apiKey = process.env.NVIDIA_API_KEY;
 
   if (!apiKey) {
-    console.error("NVIDIA_API_KEY not set — skipping NVIDIA provider");
+    console.error("NVIDIA_API_KEY not set -- skipping NVIDIA provider");
     return;
   }
 
@@ -71,24 +71,74 @@ export default async function (pi) {
     const message = event.message;
     if (message.role !== "assistant") return;
     if (message.provider !== "nvidia") return;
-    const override = MODEL_OVERRIDES[message.model];
-    if (!override?.trackPromptTokens) return;
     if (message.stopReason === "error" || message.stopReason === "aborted") return;
-    if (!message.usage) return;
 
-    const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
-    if (promptTokens <= 0 || message.usage.totalTokens === promptTokens) return;
+    // Fix empty tool calls: NVIDIA/z-ai/glm-5.1 sometimes emits tool_call
+    // chunks with empty id and name, resulting in "Tool not found" errors.
+    // When the preceding text in the same message clearly names a tool,
+    // patch the call so it can be dispatched properly.
+    let patchedToolCall = false;
+    const content = (message.content ?? []).map((block) => {
+      if (block.type !== "toolCall") return block;
+      if (block.name && block.id) return block; // already valid
 
-    return {
-      message: {
-        ...message,
-        usage: {
-          ...message.usage,
-          totalTokens: promptTokens,
-        },
-      },
-    };
+      // Empty or missing name/id -- try to infer from text in this message
+      const textBlocks = (message.content ?? []).filter(
+        (b) => b.type === "text" && typeof b.text === "string",
+      );
+      const fullText = textBlocks.map((b) => b.text).join(" ");
+
+      // Known tool names to look for in the text
+      const KNOWN_TOOL_NAMES = [
+        "ralph_done",
+        "ralph_start",
+        "bash",
+        "read",
+        "write",
+        "edit",
+        "grep",
+        "find",
+        "ls",
+      ];
+
+      // Check for exact tool names mentioned in the text
+      const mentioned = KNOWN_TOOL_NAMES.find((name) =>
+        fullText.toLowerCase().includes(name.toLowerCase()),
+      );
+
+      // Also match verb patterns: "call ralph_done", "invoke the bash tool"
+      const verbMatch = fullText.match(/(?:call|invoke|use)\s+(?:the\s+)?(\w+)/i);
+      const inferredName =
+        mentioned ??
+        (verbMatch && KNOWN_TOOL_NAMES.includes(verbMatch[1]) ? verbMatch[1] : null);
+
+      if (!inferredName) return block;
+
+      patchedToolCall = true;
+      return {
+        ...block,
+        id: block.id || `nvidia-patch-${Date.now()}`,
+        name: inferredName,
+      };
+    });
+
+    // Also handle usage tracking for models with trackPromptTokens
+    const override = MODEL_OVERRIDES[message.model];
+    const needsUsagePatch =
+      override?.trackPromptTokens &&
+      message.usage &&
+      message.usage.totalTokens !==
+        (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
+
+    if (patchedToolCall || needsUsagePatch) {
+      const updated = { ...message, content };
+      if (needsUsagePatch) {
+        const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
+        updated.usage = { ...message.usage, totalTokens: promptTokens };
+      }
+      return { message: updated };
+    }
   });
 
-  console.log(`✓ NVIDIA provider registered (${models.length} models)`);
+  console.log(`NVIDIA provider registered (${models.length} models)`);
 }
