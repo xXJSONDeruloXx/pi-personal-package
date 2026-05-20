@@ -13,7 +13,8 @@ ralph_start({
   taskContent: "# Task\n\n## Goals\n- Goal 1\n\n## Checklist\n- [ ] Item 1\n- [ ] Item 2",
   maxIterations: 50,        // Default: 50
   itemsPerIteration: 3,     // Optional: suggest N items per turn
-  reflectEvery: 10          // Optional: reflect every N iterations
+  reflectEvery: 10,         // Optional: reflect every N iterations
+  compactEachRound: true    // Optional: compact context before each new round
 })
 ```
 
@@ -22,13 +23,14 @@ ralph_start({
 1. **Write the task file**: Create `.ralph/<name>.md` with the task content. The tool does NOT create this file—you must write it yourself using the Write tool.
 2. Work on the task and update the file each iteration.
 3. Record verification evidence (commands run, file paths, outputs) in the task file.
-4. Call `ralph_done` to proceed to the next iteration.
-5. Output `<promise>COMPLETE</promise>` when finished.
-6. Stop when complete or when max iterations is reached (default 50).
+4. If `compactEachRound` is enabled, Ralph compacts context before queuing the next iteration.
+5. Call `ralph_done` to proceed to the next iteration.
+6. Output `<promise>COMPLETE</promise>` when finished.
+7. Stop when complete or when max iterations is reached (default 50).
 
 ## User Commands
 
-- `/ralph start <name|path>` - Start a new loop.
+- `/ralph start <name|path> [--compact-each-round]` - Start a new loop.
 - `/ralph resume <name>` - Resume loop.
 - `/ralph stop` - Pause loop (when agent idle).
 - `/ralph-stop` - Stop active loop (idle only).
@@ -68,6 +70,7 @@ Brief description.
 
 1. Write a clear checklist with discrete items.
 2. Update checklist and notes as you go.
-3. Capture verification evidence for completed items.
-4. Reflect when stuck to reassess approach.
-5. Output the completion marker only when truly done.
+3. If using `compactEachRound`, treat the task file as canonical memory.
+4. Capture verification evidence for completed items.
+5. Reflect when stuck to reassess approach.
+6. Output the completion marker only when truly done.
