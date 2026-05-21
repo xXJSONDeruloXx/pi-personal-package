@@ -27,6 +27,8 @@ let message = "continue";
 let turnCount = 0;
 let skipNext = false;
 let latestCtx: ExtensionContext | undefined;
+let continueRetryTimer: ReturnType<typeof setTimeout> | undefined;
+let watchdogTimer: ReturnType<typeof setInterval> | undefined;
 
 // -- Persistence -------------------------------------------------------------
 
@@ -131,24 +133,90 @@ function applyWidget(ctx: ExtensionContext) {
 
 // -- Core logic --------------------------------------------------------------
 
+function clearContinueRetry() {
+	if (continueRetryTimer) {
+		clearTimeout(continueRetryTimer);
+		continueRetryTimer = undefined;
+	}
+}
+
+function stopWatchdog() {
+	if (watchdogTimer) {
+		clearInterval(watchdogTimer);
+		watchdogTimer = undefined;
+	}
+}
+
+function startWatchdog() {
+	if (watchdogTimer) return;
+	watchdogTimer = setInterval(() => {
+		const ctx = latestCtx;
+		if (!ctx) return;
+		if (!enabled || paused) return;
+		if (!ctx.isIdle()) return;
+		if (ctx.hasPendingMessages()) return;
+		queueContinue(ctx);
+	}, 5000);
+}
+
+function queueContinue(ctx: ExtensionContext, attempt = 0) {
+	const runCtx = latestCtx ?? ctx;
+	if (!enabled || paused) return;
+	if (!message.trim()) return;
+	if (runCtx.hasPendingMessages()) return;
+
+	// During agent_end, Pi may still consider the agent "processing" for a
+	// brief moment even though the stream has visually finished. Poll until the
+	// session is truly idle, then send immediately so pifinity actually keeps
+	// the loop going instead of leaving a queued follow-up behind.
+	if (!runCtx.isIdle()) {
+		if (continueRetryTimer) return;
+		continueRetryTimer = setTimeout(() => {
+			continueRetryTimer = undefined;
+			queueContinue(runCtx, attempt + 1);
+		}, Math.min(25 * (attempt + 1), 250));
+		return;
+	}
+
+	clearContinueRetry();
+	try {
+		pi.sendUserMessage(message);
+	} catch (err) {
+		const errorMessage = err instanceof Error ? err.message : String(err);
+		if (errorMessage.includes("Agent is already processing")) {
+			if (!continueRetryTimer) {
+				continueRetryTimer = setTimeout(() => {
+					continueRetryTimer = undefined;
+					queueContinue(runCtx, attempt + 1);
+				}, Math.min(25 * (attempt + 1), 250));
+			}
+			return;
+		}
+		throw err;
+	}
+}
+
 function enable(ctx: ExtensionContext) {
 	enabled = true;
 	paused = false;
 	turnCount = 0;
 	skipNext = false;
+	startWatchdog();
 	applyWidget(ctx);
 	persistState(ctx);
 	ctx.ui.notify(`pifinity: ON -- will send "${message}" after each turn`, "info");
 
 	// Kick off immediately if agent is idle
 	if (ctx.isIdle()) {
-		pi.sendUserMessage(message);
+		queueContinue(ctx);
 	}
 }
 
 function disable(ctx: ExtensionContext) {
 	enabled = false;
 	paused = false;
+	clearContinueRetry();
+	stopWatchdog();
 	applyWidget(ctx);
 	persistState(ctx);
 	ctx.ui.notify("pifinity: OFF", "info");
@@ -156,6 +224,8 @@ function disable(ctx: ExtensionContext) {
 
 function pause(ctx: ExtensionContext) {
 	paused = true;
+	clearContinueRetry();
+	stopWatchdog();
 	applyWidget(ctx);
 	ctx.ui.notify("pifinity: paused (send a message to resume)", "info");
 }
@@ -185,15 +255,19 @@ export default function (api: ExtensionAPI) {
 		// Reset first; restoreFromEntries will re-enable if state was saved
 		enabled = false;
 		paused = false;
+		stopWatchdog();
 		restoreFromEntries(ctx);
+		if (enabled && !paused) startWatchdog();
 		applyWidget(ctx);
 		// On /reload, if pifinity was enabled and agent is idle, re-kick the loop
 		if (enabled && !paused && event.reason === "reload" && ctx.isIdle()) {
-			pi.sendUserMessage(message);
+			queueContinue(ctx);
 		}
 	});
 
 	pi.on("session_shutdown", () => {
+		clearContinueRetry();
+		stopWatchdog();
 		latestCtx = undefined;
 	});
 
@@ -205,6 +279,7 @@ export default function (api: ExtensionAPI) {
 
 		if (paused) {
 			paused = false;
+			startWatchdog();
 			// Don't set skipNext -- pifinity should fire on the next agent_end
 		} else if (enabled) {
 			skipNext = true;
@@ -234,7 +309,7 @@ export default function (api: ExtensionAPI) {
 		if (ctx.isIdle() && !ctx.hasPendingMessages()) {
 			turnCount++;
 			persistState(ctx);
-			pi.sendUserMessage(message);
+			queueContinue(ctx);
 		}
 	});
 
@@ -261,8 +336,9 @@ export default function (api: ExtensionAPI) {
 		applyWidget(ctx);
 		persistState(ctx);
 
-		// Agent is idle -- sendUserMessage triggers a new turn immediately
-		pi.sendUserMessage(message);
+		// Queue the next continue safely whether the runtime is already idle
+		// or still finishing the current assistant turn.
+		queueContinue(ctx);
 	});
 
 	// Commands
