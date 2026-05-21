@@ -25,7 +25,6 @@
     "pi-extensions": "git+https://github.com/xXJSONDeruloXx/pi-extensions-ralph.git#5a9439a78f26715f34b2d1e447727da1a96c4957",
     "pi-codex-web-search": "^0.1.5",
     "pi-command-center": "^0.1.4",
-    "pi-computer-use": "git+https://github.com/swairshah/pi-computer-use.git",
     "pi-continuous-learning": "^0.9.0",
     "pi-hide-messages": "^0.1.1",
     "pi-interactive-shell": "^0.10.1",
@@ -46,8 +45,7 @@
     "pi-hide-messages",
     "pi-interactive-shell",
     "pi-stash",
-    "pi-tool-display",
-    "pi-computer-use"
+    "pi-tool-display"
   ],
   "pi": {
     "prompts": [
@@ -69,8 +67,7 @@
       "./node_modules/pi-interactive-shell/index.ts",
       "./extensions/poe-provider/index.ts",
       "./node_modules/pi-stash/src/stash.ts",
-      "./node_modules/pi-tool-display/index.ts",
-      "./node_modules/pi-computer-use/src/index.ts"
+      "./node_modules/pi-tool-display/index.ts"
     ],
     "skills": [
       "./skills",
@@ -98,8 +95,7 @@
     "pi-hide-messages",
     "pi-interactive-shell",
     "pi-stash",
-    "pi-tool-display",
-    "pi-computer-use"
+    "pi-tool-display"
   ],
   "devDependencies": {
     "vitest": "^4.1.5"

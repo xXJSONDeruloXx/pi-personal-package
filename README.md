@@ -94,7 +94,6 @@ This package also bundles a set of Pi packages so they install together:
 - `latchkey`
 - `pi-codex-web-search`
 - `pi-command-center`
-- `pi-computer-use`
 - `pi-continuous-learning`
 - `pi-hide-messages`
 - `pi-interactive-shell`

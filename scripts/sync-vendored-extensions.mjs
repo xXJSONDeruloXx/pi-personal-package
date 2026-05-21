@@ -64,12 +64,6 @@ const PACKAGES = [
 		rootPatterns: [/^index\.ts$/, /^package\.json$/],
 		paths: ["config", "src"],
 	},
-	{
-		source: "pi-computer-use",
-		dest: "pi-computer-use",
-		rootPatterns: [/^package\.json$/],
-		paths: ["src"],
-	},
 ];
 
 function copyPath(sourcePath, destinationPath) {
