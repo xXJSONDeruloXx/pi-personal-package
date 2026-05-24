@@ -29,12 +29,6 @@ const PACKAGES = [
 		rootPatterns: [/^index\.ts$/, /^SKILL\.md$/, /^package\.json$/],
 	},
 	{
-		source: "pi-codex-web-search",
-		dest: "pi-codex-web-search",
-		rootPatterns: [/^package\.json$/],
-		paths: ["src"],
-	},
-	{
 		source: "pi-command-center",
 		dest: "pi-command-center",
 		rootPatterns: [/^package\.json$/],

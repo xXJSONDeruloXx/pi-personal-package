@@ -27,6 +27,12 @@ Update later with:
 pi update
 ```
 
+Web access is no longer bundled here. Install it separately if you want it:
+
+```bash
+pi install npm:pi-web-access
+```
+
 ## What this repo contains
 
 ### `extensions/`
@@ -92,7 +98,6 @@ This package also bundles a set of Pi packages so they install together:
 - `@tmustier/pi-files-widget`
 - `@tmustier/pi-ralph-wiggum`
 - `latchkey`
-- `pi-codex-web-search`
 - `pi-command-center`
 - `pi-continuous-learning`
 - `pi-hide-messages`
