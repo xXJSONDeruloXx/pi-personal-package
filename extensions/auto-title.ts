@@ -44,19 +44,18 @@ export default function (pi: ExtensionAPI) {
 		timeoutId = undefined;
 	};
 
-	const resetTimeout = (ctx: ExtensionContext): void => {
+	const resetTimeout = (ui: ExtensionContext["ui"], cwdBase: string): void => {
 		clearTabTimeout();
 		timeoutId = setTimeout(() => {
 			if (agentRunning) {
-				const cwdBase = path.basename(ctx.cwd || "pi");
-				ctx.ui.setTitle(buildTitle(cwdBase, "🔴", lastTitle || undefined));
+				ui.setTitle(buildTitle(cwdBase, "🔴", lastTitle || undefined));
 				log("activity timeout → 🛑");
 			}
 		}, INACTIVE_TIMEOUT_MS);
 	};
 
-	const markActivity = (ctx: ExtensionContext): void => {
-		if (agentRunning) resetTimeout(ctx);
+	const markActivity = (ui: ExtensionContext["ui"], cwdBase: string): void => {
+		if (agentRunning) resetTimeout(ui, cwdBase);
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -94,11 +93,12 @@ export default function (pi: ExtensionAPI) {
 		agentRunning = true;
 		const cwdBase = path.basename(ctx.cwd || "pi");
 		ctx.ui.setTitle(buildTitle(cwdBase, "🟡", lastTitle || undefined));
-		resetTimeout(ctx);
+		resetTimeout(ctx.ui, cwdBase);
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
-		markActivity(ctx);
+		const cwdBase = path.basename(ctx.cwd || "pi");
+		markActivity(ctx.ui, cwdBase);
 	});
 
 	pi.on("tool_call", async (event: any, ctx) => {
@@ -106,14 +106,17 @@ export default function (pi: ExtensionAPI) {
 			const command = typeof event.input?.command === "string" ? event.input.command : "";
 			if (command && GIT_COMMIT_RE.test(command)) sawCommit = true;
 		}
-		markActivity(ctx);
+		const cwdBase = path.basename(ctx.cwd || "pi");
+		markActivity(ctx.ui, cwdBase);
 	});
 
 	pi.on("tool_result", async (_event, ctx) => {
-		markActivity(ctx);
+		const cwdBase = path.basename(ctx.cwd || "pi");
+		markActivity(ctx.ui, cwdBase);
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		agentRunning = false;
 		clearTabTimeout();
 		const cwdBase = path.basename(ctx.cwd || "pi");
 		ctx.ui.setTitle(`🟡 π - ${cwdBase}`);
