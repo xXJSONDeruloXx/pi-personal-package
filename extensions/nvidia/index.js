@@ -214,7 +214,7 @@ export default async function (pi) {
   });
 
   pi.on("message_end", async (event, ctx) => {
-    const message = event.message;
+    let message = event.message;
     if (message.role !== "assistant") return;
     if (message.provider !== "nvidia") return;
 
@@ -222,6 +222,7 @@ export default async function (pi) {
     const recentRateLimit = recentRateLimits.get(sessionId);
     const hasFreshRateLimit = recentRateLimit && Date.now() - recentRateLimit.timestamp <= RATE_LIMIT_TTL_MS;
 
+    let salvagedFromStreamEnd = false;
     if (message.stopReason === "error") {
       if (hasFreshRateLimit) {
         recentRateLimits.delete(sessionId);
@@ -232,7 +233,29 @@ export default async function (pi) {
           },
         };
       }
-      return;
+
+      // NVIDIA NIM (e.g. z-ai/glm) often closes the SSE stream without a
+      // final finish_reason chunk, even when the model fully emitted text
+      // and/or tool calls. pi-ai surfaces this as stopReason="error" with
+      // errorMessage="Stream ended without finish_reason". When the message
+      // actually carried content, salvage it: clear the error and fall through
+      // to the normal tool-call/usage patching path below so the response is
+      // usable instead of failing every turn.
+      const isStreamEndError = /Stream ended without finish_reason/i.test(message.errorMessage ?? "");
+      const hasToolCall = (message.content ?? []).some((b) => b.type === "toolCall");
+      const hasText = (message.content ?? []).some(
+        (b) => b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0,
+      );
+      if (isStreamEndError && (hasToolCall || hasText)) {
+        salvagedFromStreamEnd = true;
+        message = {
+          ...message,
+          stopReason: hasToolCall ? "toolUse" : "stop",
+          errorMessage: undefined,
+        };
+      } else {
+        return;
+      }
     }
 
     recentRateLimits.delete(sessionId);
@@ -288,7 +311,7 @@ export default async function (pi) {
       message.usage.totalTokens !==
         (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
 
-    if (patchedToolCall || needsUsagePatch) {
+    if (salvagedFromStreamEnd || patchedToolCall || needsUsagePatch) {
       const updated = { ...message, content };
       if (needsUsagePatch) {
         const promptTokens = (message.usage.input ?? 0) + (message.usage.cacheRead ?? 0);
