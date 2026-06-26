@@ -16,6 +16,7 @@ import { PoeClient, type PoeModel, type PoeHistoryEntry } from "./poe-client.js"
 import { normalizeModels, categorizeModels } from "./models.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
 import { loadCustomModels, saveCustomModel } from "./custom-models.js";
+import { streamPoeEmulated } from "./emulated-tools.js";
 
 // ---------------------------------------------------------------------------
 // State
@@ -125,6 +126,35 @@ async function fetchAndRegisterProviders(pi: ExtensionAPI): Promise<void> {
 			api: "openai-responses",
 			models: responseModels,
 			authHeader: true,
+			oauth: {
+				name: "Sign in with Poe",
+				login: (callbacks) => loginPoe(callbacks, client),
+				refreshToken: refreshPoeToken,
+				getApiKey: getPoeApiKey,
+			},
+		});
+	}
+
+	// Register poe-emulated provider: SAME models as `poe`, but routes every
+	// request through a prompt-based tool protocol (no `tools=` field) via a
+	// custom streamSimple. This lets toolless models (e.g. the free Together-AI
+	// `-t` variants like qwen3.5-397b-a17b-t, glm-5-t) call tools, and gives any
+	// model a fallback tool path. Use it with: pi --provider poe-emulated --model <id>
+	//
+	// Models get api: "openai-completions-emulated" so the custom streamSimple
+	// is only used for poe-emulated, not for every openai-completions model.
+	if (allChatModels.length > 0) {
+		const emulatedModels = allChatModels.map((m) => ({
+			...m,
+			api: "openai-completions-emulated" as unknown as typeof m.api,
+		}));
+		pi.registerProvider("poe-emulated", {
+			baseUrl: "https://api.poe.com/v1",
+			apiKey: "POE_API_KEY",
+			api: "openai-completions-emulated",
+			models: emulatedModels,
+			authHeader: true,
+			streamSimple: streamPoeEmulated,
 			oauth: {
 				name: "Sign in with Poe",
 				login: (callbacks) => loginPoe(callbacks, client),

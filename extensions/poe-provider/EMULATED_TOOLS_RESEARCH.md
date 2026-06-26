@@ -2,6 +2,13 @@
 
 This document summarizes research on making non-tool-calling models work with tool execution in pi, analysis of the current `poe-emulated-tools` branch implementation, and recommended improvements.
 
+> **Update (June 2026):** The patterns below are now **empirically validated**
+> against the live Poe API via npcpy. See
+> [`research/EMULATION_VALIDATION.md`](./research/EMULATION_VALIDATION.md) for
+> the proof (which request shapes 200 vs 400), reproducible test scripts, the
+> exact free models emulation unblocks, and a concrete, pi-API-grounded
+> implementation sketch for the `poe-provider` extension.
+
 ---
 
 ## Web Research Findings
