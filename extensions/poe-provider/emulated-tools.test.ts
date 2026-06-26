@@ -113,6 +113,32 @@ describe("parseEmulatedToolCalls", () => {
 		const text = `${TOOL_OPEN_TAG}[]${TOOL_CLOSE_TAG}`;
 		expect(parseEmulatedToolCalls(text)).toBeNull();
 	});
+
+	it("repairs a truncated tool_calls block missing the closing tag", () => {
+		// Simulates model hitting ~2k token cap mid-block
+		const text =
+			`${TOOL_OPEN_TAG}[{"name":"a","arguments":{"path":"/tmp"}},{"name":"b","arg`;
+		const calls = parseEmulatedToolCalls(text);
+		expect(calls).toHaveLength(1);
+		expect(calls![0].name).toBe("a");
+		expect(calls![0].arguments).toEqual({ path: "/tmp" });
+	});
+
+	it("repairs a truncated block after a closed block", () => {
+		const text =
+			`${TOOL_OPEN_TAG}[{"name":"x","arguments":{}}]${TOOL_CLOSE_TAG} some prose ${TOOL_OPEN_TAG}[{"name":"a","arguments":{}},{"name":"b","arg`;
+		const calls = parseEmulatedToolCalls(text);
+		expect(calls).toHaveLength(2); // x from closed block, a from repaired truncated block
+		expect(calls!.map((c) => c.name)).toEqual(["x", "a"]);
+	});
+
+	it("parses a complete block inside an unclosed block (last closed wins)", () => {
+		// JSON array is complete, just missing </tool_calls>
+		const text = `${TOOL_OPEN_TAG}[{"name":"done","arguments":{"x":1}}]`;
+		const calls = parseEmulatedToolCalls(text);
+		expect(calls).toHaveLength(1);
+		expect(calls![0].name).toBe("done");
+	});
 });
 
 // ---------------------------------------------------------------------------

@@ -101,7 +101,12 @@ export function flattenMessagesToChat(
 // Parsing
 // ---------------------------------------------------------------------------
 
-/** Parse ALL `<tool_calls>[...]</tool_calls>` blocks out of text and combine them. */
+/** Parse ALL `<tool_calls>[...]</tool_calls>` blocks out of text and combine them.
+ *
+ * Also handles truncation: when the model hits its output token limit (e.g.
+ * ~2k on free Together AI models), the last `<tool_calls>` block may be
+ * cut off mid-JSON with no closing `</tool_calls>` tag. This function
+ * detects that and attempts to repair by closing the JSON array and tag. */
 export function parseEmulatedToolCalls(text: string): ToolCall[] | null {
 	const allCalls: ToolCall[] = [];
 	const re = new RegExp(
@@ -112,7 +117,103 @@ export function parseEmulatedToolCalls(text: string): ToolCall[] | null {
 		const calls = parseToolCallJson(match[1]);
 		if (calls) allCalls.push(...calls);
 	}
+
+	// Try to salvage a truncated unclosed tool_calls block at the end.
+	// This happens when the model hits its output token cap mid-block.
+	const truncated = repairTruncatedBlock(text);
+	if (truncated) {
+		allCalls.push(...truncated);
+	}
+
 	return allCalls.length > 0 ? allCalls : null;
+}
+
+/**
+ * Detect and repair a trailing unclosed `<tool_calls>` block.
+ *
+ * Finds the last `<tool_calls>` that has no matching `</tool_calls>`
+ * after it, then attempts to close the JSON array and extract valid calls.
+ */
+export function repairTruncatedBlock(text: string): ToolCall[] | null {
+	// Find the last unclosed <tool_calls>
+	let searchFrom = 0;
+	let lastUnclosedIdx = -1;
+	while (true) {
+		const openIdx = text.indexOf(TOOL_OPEN_TAG, searchFrom);
+		if (openIdx === -1) break;
+		const closeIdx = text.indexOf(TOOL_CLOSE_TAG, openIdx + TOOL_OPEN_TAG.length);
+		if (closeIdx === -1) {
+			lastUnclosedIdx = openIdx;
+			break; // This and any subsequent opens are also unclosed
+		}
+		searchFrom = closeIdx + TOOL_CLOSE_TAG.length;
+	}
+
+	if (lastUnclosedIdx === -1) return null;
+
+	// Extract the truncated content after the final <tool_calls>
+	const afterTag = text.slice(lastUnclosedIdx + TOOL_OPEN_TAG.length);
+
+	// Try parsing as-is first (maybe the JSON array is complete, just missing the closing tag)
+	let calls = parseToolCallJson(afterTag.trim());
+	if (calls) return calls;
+
+	// The JSON is truncated. Walk backwards to find the last complete JSON object
+	// by looking for `},` or `]` (end of an object or end of the array).
+	const repaired = repairJsonArray(afterTag);
+	if (!repaired) return null;
+
+	calls = parseToolCallJson(repaired);
+	return calls;
+}
+
+/**
+ * Try to close a truncated JSON array by finding the last complete object.
+ * E.g. `[{"name":"a","arguments":{}},{"name":"b","arg` → `[{"name":"a","arguments":{}}]`
+ */
+export function repairJsonArray(partial: string): string | null {
+	// Strategy: find the last `},` or `}]` boundary that ends a complete object.
+	// Try from rightmost to leftmost.
+	const boundaries: number[] = [];
+	for (let i = partial.length - 1; i >= 0; i--) {
+		const ch = partial[i];
+		if (ch === ',') {
+			// Check if this comma follows a `}` (end of a complete object)
+			let j = i - 1;
+			while (j >= 0 && partial[j] === ' ') j--;
+			if (j >= 0 && partial[j] === '}') {
+				boundaries.push(i); // comma after a complete object
+			}
+		}
+	}
+
+	// Try each boundary, closing the array
+	for (const commaPos of boundaries) {
+		const truncated = partial.slice(0, commaPos) + "]";
+		try {
+			const parsed = JSON.parse(truncated);
+			if (Array.isArray(parsed) && parsed.length > 0) return truncated;
+		} catch {
+			continue;
+		}
+	}
+
+	// If no comma boundaries worked, check if the opening `[` content is a single
+	// complete object (rare but possible: `[{"name":"a"` truncated mid-key)
+	// Try just slapping `}]` on the end
+	for (let i = partial.length - 1; i >= 0; i--) {
+		if (partial[i] === '}') {
+			const candidate = partial.slice(0, i + 1) + ']';
+			try {
+				const parsed = JSON.parse(candidate);
+				if (Array.isArray(parsed) && parsed.length > 0) return candidate;
+			} catch {
+				break;
+			}
+		}
+	}
+
+	return null;
 }
 
 /** Strict parse + shape normalization of the JSON array inside a tool block. */
