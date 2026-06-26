@@ -101,11 +101,18 @@ export function flattenMessagesToChat(
 // Parsing
 // ---------------------------------------------------------------------------
 
-/** Parse the first valid `<tool_calls>[...]</tool_calls>` block out of text. */
+/** Parse ALL `<tool_calls>[...]</tool_calls>` blocks out of text and combine them. */
 export function parseEmulatedToolCalls(text: string): ToolCall[] | null {
-	const match = text.match(TOOL_BLOCK_RE);
-	if (!match) return null;
-	return parseToolCallJson(match[1]);
+	const allCalls: ToolCall[] = [];
+	const re = new RegExp(
+		`${escapeRe(TOOL_OPEN_TAG)}\\s*([\\s\\S]*?\\])\\s*${escapeRe(TOOL_CLOSE_TAG)}`,
+		"g",
+	);
+	for (const match of text.matchAll(re)) {
+		const calls = parseToolCallJson(match[1]);
+		if (calls) allCalls.push(...calls);
+	}
+	return allCalls.length > 0 ? allCalls : null;
 }
 
 /** Strict parse + shape normalization of the JSON array inside a tool block. */

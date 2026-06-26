@@ -37,7 +37,6 @@ import {
 	calculateCost,
 } from "@mariozechner/pi-ai";
 import {
-	TOOL_BLOCK_RE,
 	toolsAsSystemText,
 	flattenMessagesToChat,
 	parseEmulatedToolCalls,

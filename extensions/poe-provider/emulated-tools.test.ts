@@ -79,6 +79,19 @@ describe("parseEmulatedToolCalls", () => {
 		expect(calls![0].name).toBe("x");
 	});
 
+	it("parses multiple separate tool_calls blocks in one response", () => {
+		const text =
+			`I'll edit both files.\n` +
+			`${TOOL_OPEN_TAG}[{"name":"edit","arguments":{"path":"a.py"}}]${TOOL_CLOSE_TAG}\n` +
+			`Now the other file:\n` +
+			`${TOOL_OPEN_TAG}[{"name":"edit","arguments":{"path":"b.py"}}]${TOOL_CLOSE_TAG}`;
+		const calls = parseEmulatedToolCalls(text);
+		expect(calls).toHaveLength(2);
+		expect(calls!.map((c) => c.name)).toEqual(["edit", "edit"]);
+		expect(calls![0].arguments).toEqual({ path: "a.py" });
+		expect(calls![1].arguments).toEqual({ path: "b.py" });
+	});
+
 	it("accepts args/parameters aliases and stringified arguments", () => {
 		const text =
 			`${TOOL_OPEN_TAG}[` +
