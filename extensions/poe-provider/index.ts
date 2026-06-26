@@ -17,6 +17,34 @@ import { normalizeModels, categorizeModels } from "./models.js";
 import { loginPoe, refreshPoeToken, getPoeApiKey } from "./oauth.js";
 import { loadCustomModels, saveCustomModel } from "./custom-models.js";
 import { streamPoeEmulated } from "./emulated-tools.js";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+// ---------------------------------------------------------------------------
+// Footer visibility preference (persisted)
+// ---------------------------------------------------------------------------
+
+const FOOTER_CONFIG_DIR = join(homedir(), ".poe-code");
+const FOOTER_CONFIG_PATH = join(FOOTER_CONFIG_DIR, "poe-footer.json");
+
+function isFooterVisible(): boolean {
+	try {
+		const data = JSON.parse(readFileSync(FOOTER_CONFIG_PATH, "utf-8"));
+		return data.visible !== false; // default: visible
+	} catch {
+		return true;
+	}
+}
+
+function setFooterVisible(visible: boolean): void {
+	try {
+		mkdirSync(FOOTER_CONFIG_DIR, { recursive: true });
+		writeFileSync(FOOTER_CONFIG_PATH, JSON.stringify({ visible }, null, 2) + "\n");
+	} catch (err) {
+		console.error("[poe] Failed to save footer preference:", err);
+	}
+}
 
 // ---------------------------------------------------------------------------
 // State
@@ -234,7 +262,7 @@ export default async function (pi: ExtensionAPI) {
 	pi.registerCommand("poe", {
 		description: "Poe integration: balance, history, models, free, refresh, account, add",
 		getArgumentCompletions(prefix: string) {
-			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout", "add"];
+			const subs = ["balance", "history", "models", "free", "refresh", "account", "login", "logout", "add", "footer"];
 			return subs
 				.filter((s) => s.startsWith(prefix))
 				.map((s) => ({ value: s, label: s }));
@@ -545,9 +573,45 @@ export default async function (pi: ExtensionAPI) {
 					break;
 				}
 
+				case "footer": {
+					const action = rest.trim().toLowerCase();
+					const currentlyVisible = isFooterVisible();
+
+					if (action === "show") {
+						setFooterVisible(true);
+						ctx.ui.notify("Poe footer shown. Will display on next turn.", "success");
+						// Immediately show it
+						const key = resolveApiKey();
+						if (key) {
+							const balance = await fetchBalance(ctx.signal);
+							if (balance !== null) ctx.ui.setStatus("poe-balance", formatBalance(balance));
+						}
+					} else if (action === "hide") {
+						setFooterVisible(false);
+						ctx.ui.setStatus("poe-balance", "");
+						ctx.ui.setStatus("poe-turn-cost", "");
+						ctx.ui.notify("Poe footer hidden.", "success");
+					} else if (action === "toggle") {
+						const newVal = !currentlyVisible;
+						setFooterVisible(newVal);
+						if (!newVal) {
+							ctx.ui.setStatus("poe-balance", "");
+							ctx.ui.setStatus("poe-turn-cost", "");
+						}
+						ctx.ui.notify(`Poe footer ${newVal ? "shown" : "hidden"}.`, "success");
+					} else {
+						ctx.ui.notify(
+							`Poe footer: currently ${currentlyVisible ? "visible" : "hidden"}\n` +
+							"Usage: /poe footer show | hide | toggle",
+							"info"
+						);
+					}
+					break;
+				}
+
 				default: {
 					ctx.ui.notify(
-						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout | add",
+						"Poe commands: /poe balance | history [N] | models [query] | free [query] | refresh | account | login | logout | add | footer show|hide|toggle",
 						"info"
 					);
 					break;
@@ -715,7 +779,8 @@ export default async function (pi: ExtensionAPI) {
 	// -------------------------------------------------------------------
 
 	pi.on("session_start", async (_event, ctx) => {
-		// Only show badge if we have an API key
+		// Only show badge if we have an API key and footer is visible
+		if (!isFooterVisible()) return;
 		const key = resolveApiKey();
 		if (!key) return;
 
@@ -727,6 +792,7 @@ export default async function (pi: ExtensionAPI) {
 
 	// Update balance badge and show per-turn cost after each agent turn
 	pi.on("agent_end", async (_event, ctx) => {
+		if (!isFooterVisible()) return;
 		const key = resolveApiKey();
 		if (!key) return;
 
