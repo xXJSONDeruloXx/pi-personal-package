@@ -7,9 +7,6 @@
  * `api: "openai-completions-emulated"` so this custom `streamSimple` only handles
  * `poe-emulated` traffic, never the main `poe` provider's.
  *
- *   "Model <id> does not support tool calling. Use a tool-capable model or
- *    remove tools from the request."
- *
  * How it works (validated against the live Poe API — see research/EMULATION_VALIDATION.md):
  *   1. Tool definitions are rendered as TEXT instructions in the system prompt.
  *   2. The model is told to emit a `<tool_calls>[{name, arguments}, ...]</tool_calls>` block.
@@ -19,11 +16,13 @@
  *   5. A retry/repair loop recovers from malformed JSON — the gap that made the
  *      old `poe-emulated-tools` branch "not work very well".
  *
- * Pure, dependency-free helpers live in `emulated-tools-helpers.ts` (unit-tested).
+ * Streaming: text deltas are emitted live as they arrive from the SSE stream.
+ * When a `<tool_calls>` block is detected mid-stream, text emission is suppressed
+ * and the rest is buffered. After the stream completes, tool calls are parsed and
+ * emitted as toolcall events. On retry (malformed JSON), the second attempt uses
+ * buffered mode since we need the full text to decide.
  *
- * v1 trade-off: responses are buffered before emitting events (no live token
- * streaming during a tool-call turn). Reliability over cosmetics; see
- * "Future work" at the bottom.
+ * Pure, dependency-free helpers live in `emulated-tools-helpers.ts` (unit-tested).
  */
 
 import {
@@ -108,6 +107,31 @@ interface RunCtx {
 	apiKey: string | undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Tag detection helpers
+// ---------------------------------------------------------------------------
+
+/** Prefix of TOOL_OPEN_TAG that could still be arriving in a partial delta. */
+const TOOL_TAG_PREFIX = "<tool_";
+
+/**
+ * Returns how many characters at the end of `text` could be the start of
+ * TOOL_OPEN_TAG (e.g. if text ends with "<too", returns 4). Returns 0 if
+ * the text doesn't end with a prefix of the tag.
+ */
+function partialTagLength(text: string): number {
+	for (let len = Math.min(text.length, TOOL_OPEN_TAG.length); len >= 1; len--) {
+		if (text.endsWith(TOOL_OPEN_TAG.slice(0, len))) {
+			return len;
+		}
+	}
+	return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Main loop
+// ---------------------------------------------------------------------------
+
 async function runEmulated(
 	model: Model<Api>,
 	context: Context,
@@ -127,13 +151,54 @@ async function runEmulated(
 		const messages = [...baseMessages];
 
 		let attempts = 0;
-		let finalText = "";
 		let stopReason: AssistantMessage["stopReason"] = "stop";
 		let toolCalls: ToolCall[] | null = null;
 		let usage = output.usage;
 
-		while (attempts < ctx.maxAttempts) {
+		// State from the first (streaming) attempt.
+		let firstAttemptText = "";
+		let firstAttemptEmittedLen = 0;
+		let firstAttemptContentIdx: number | undefined;
+		let needsRetry = false;
+
+		// ---- First attempt: live streaming ----
+		// Stream text deltas live. When <tool_calls> is detected, stop emitting
+		// text and buffer the rest. After completion, check if we need a retry.
+		if (attempts < ctx.maxAttempts) {
 			attempts += 1;
+			const result = await streamWithLiveText(
+				ctx, endpoint, model, systemText, messages, options?.signal, output, hasTools,
+			);
+			firstAttemptText = result.text;
+			firstAttemptEmittedLen = result.emittedLen;
+			firstAttemptContentIdx = result.contentIdx;
+			usage = mergeUsage(usage, result.usage);
+
+			// Parse tool calls from the full text.
+			toolCalls = hasTools ? parseEmulatedToolCalls(firstAttemptText) : null;
+
+			if (hasTools && looksLikeAttemptedCall(firstAttemptText) && !toolCalls) {
+				needsRetry = true;
+			}
+		}
+
+		// ---- Retry attempts: buffered (need full text to decide) ----
+		while (needsRetry && attempts < ctx.maxAttempts) {
+			attempts += 1;
+
+			// If we emitted text during the first attempt that included part of a
+			// malformed tool block, that text is already in the output. The retry
+			// adds more context to the messages and gets a fresh response.
+
+			messages.push({ role: "assistant", content: firstAttemptText });
+			messages.push({
+				role: "user",
+				content:
+					"Your previous response contained a tool call block but the JSON was " +
+					"invalid or empty. Respond with ONLY a valid " +
+					`${TOOL_OPEN_TAG}[{"name":"...","arguments":{...}}]${TOOL_CLOSE_TAG} block.`,
+			});
+
 			const result = await requestFull(ctx.fetchImpl, endpoint, ctx.apiKey, {
 				model: model.id,
 				stream: true,
@@ -143,47 +208,89 @@ async function runEmulated(
 				max_tokens: model.maxTokens,
 			}, options?.signal);
 
-			finalText = result.text;
 			usage = mergeUsage(usage, result.usage);
 
-			toolCalls = hasTools ? parseEmulatedToolCalls(finalText) : null;
+			toolCalls = hasTools ? parseEmulatedToolCalls(result.text) : null;
 
-			if (hasTools && looksLikeAttemptedCall(finalText) && !toolCalls) {
-				// Malformed tool block — ask the model to fix it and retry.
-				messages.push({ role: "assistant", content: finalText });
-				messages.push({
-					role: "user",
-					content:
-						"Your previous response contained a tool call block but the JSON was " +
-						"invalid or empty. Respond with ONLY a valid " +
-						`${TOOL_OPEN_TAG}[{"name":"...","arguments":{...}}]${TOOL_CLOSE_TAG} block.`,
-				});
+			if (hasTools && looksLikeAttemptedCall(result.text) && !toolCalls) {
+				// Still malformed — update the text for the next loop iteration.
+				firstAttemptText = result.text;
 				continue;
 			}
-			break; // success or plain-text answer
+
+			// Retry succeeded or gave plain text.
+			firstAttemptText = result.text;
+			firstAttemptEmittedLen = 0; // Nothing was live-emitted for this retry.
+			firstAttemptContentIdx = undefined;
+			needsRetry = false;
+
+			// Emit the retry response as text (it's a fresh response, no tool block
+			// was detected, or it was parsed successfully).
+			if (toolCalls && toolCalls.length > 0) {
+				// Tool calls from retry — emit them below (outside the loop).
+			} else if (result.text) {
+				const clean = hasTools ? result.text.replace(TOOL_BLOCK_RE, "").trim() : result.text;
+				const text = clean || result.text;
+				if (text) {
+					const idx = output.content.length;
+					output.content.push({ type: "text", text });
+					ctx.stream.push({ type: "text_start", contentIndex: idx, partial: output });
+					ctx.stream.push({ type: "text_delta", contentIndex: idx, delta: text, partial: output });
+					ctx.stream.push({ type: "text_end", contentIndex: idx, content: text, partial: output });
+				}
+			}
+			break;
 		}
 
-		// Emit content events.
-		if (toolCalls && toolCalls.length > 0) {
-			stopReason = "toolUse";
-			let idx = output.content.length;
-			for (const call of toolCalls) {
-				output.content.push(call);
-				ctx.stream.push({ type: "toolcall_start", contentIndex: idx, partial: output });
-				const delta = JSON.stringify(call.arguments);
-				ctx.stream.push({ type: "toolcall_delta", contentIndex: idx, delta, partial: output });
-				ctx.stream.push({ type: "toolcall_end", contentIndex: idx, toolCall: call, partial: output });
-				idx += 1;
+		// ---- Emit final events from the first (streaming) attempt ----
+		if (firstAttemptContentIdx !== undefined || toolCalls) {
+			// We had a first attempt. Handle the text that was already emitted.
+			if (toolCalls && toolCalls.length > 0) {
+				stopReason = "toolUse";
+
+				// If we emitted text before the <tool_calls> block was detected,
+				// trim it to only the pre-tool-call prose. The text block already
+				// exists in output.content; update it to remove the tool block.
+				if (firstAttemptContentIdx !== undefined) {
+					const preToolText = firstAttemptText.slice(0, firstAttemptEmittedLen).trimEnd();
+					// Remove any partial tag prefix from the end.
+					const cleaned = preToolText.replace(/\s*<tool_.*$/s, "").trimEnd();
+					const block = output.content[firstAttemptContentIdx];
+					if (block && block.type === "text") {
+						if (cleaned) {
+							block.text = cleaned;
+							// Update pi with the trimmed text.
+							ctx.stream.push({ type: "text_end", contentIndex: firstAttemptContentIdx, content: cleaned, partial: output });
+						} else {
+							// The entire text was part of a tool-call preamble (unlikely but
+							// possible). Remove the text block.
+							output.content.splice(firstAttemptContentIdx, 1);
+						}
+					}
+				}
+
+				// Emit toolcall events.
+				let idx = output.content.length;
+				for (const call of toolCalls) {
+					output.content.push(call);
+					ctx.stream.push({ type: "toolcall_start", contentIndex: idx, partial: output });
+					const delta = JSON.stringify(call.arguments);
+					ctx.stream.push({ type: "toolcall_delta", contentIndex: idx, delta, partial: output });
+					ctx.stream.push({ type: "toolcall_end", contentIndex: idx, toolCall: call, partial: output });
+					idx += 1;
+				}
+			} else if (firstAttemptContentIdx !== undefined && !needsRetry) {
+				// Plain text answer — finalize the text block that was streamed live.
+				// The text_delta events were pushed during streaming. Push text_end
+				// with the final content (stripped of any stray tool block).
+				const block = output.content[firstAttemptContentIdx];
+				if (block && block.type === "text") {
+					const clean = hasTools ? firstAttemptText.replace(TOOL_BLOCK_RE, "").trim() : firstAttemptText;
+					const text = clean || firstAttemptText;
+					block.text = text;
+					ctx.stream.push({ type: "text_end", contentIndex: firstAttemptContentIdx, content: text, partial: output });
+				}
 			}
-		} else if (finalText) {
-			// Strip a stray/empty tool block from a plain answer, if present.
-			const clean = hasTools ? finalText.replace(TOOL_BLOCK_RE, "").trim() : finalText;
-			const text = clean || finalText;
-			const idx = output.content.length;
-			output.content.push({ type: "text", text });
-			ctx.stream.push({ type: "text_start", contentIndex: idx, partial: output });
-			ctx.stream.push({ type: "text_delta", contentIndex: idx, delta: text, partial: output });
-			ctx.stream.push({ type: "text_end", contentIndex: idx, content: text, partial: output });
 		}
 
 		output.usage = usage;
@@ -206,7 +313,200 @@ async function runEmulated(
 }
 
 // ---------------------------------------------------------------------------
-// HTTP + SSE parsing
+// Live streaming first attempt
+// ---------------------------------------------------------------------------
+
+interface LiveStreamResult {
+	text: string;
+	emittedLen: number;
+	contentIdx: number | undefined;
+	usage: Partial<AssistantMessage["usage"]>;
+}
+
+/**
+ * Stream the SSE response with live text deltas.
+ *
+ * - Text before `<tool_calls>` is emitted as `text_delta` events.
+ * - When the opening tag is detected (or a partial prefix of it), text
+ *   emission is suppressed and the rest is buffered.
+ * - Returns the full text, how many characters were emitted live, and the
+ *   content index of the text block (if one was started).
+ */
+async function streamWithLiveText(
+	ctx: RunCtx,
+	endpoint: string,
+	model: Model<Api>,
+	systemText: string,
+	messages: Array<{ role: string; content: string }>,
+	signal: AbortSignal | undefined,
+	output: AssistantMessage,
+	hasTools: boolean,
+): Promise<LiveStreamResult> {
+	const body: Record<string, unknown> = {
+		model: model.id,
+		stream: true,
+		messages: systemText
+			? [{ role: "system", content: systemText }, ...messages]
+			: messages,
+		max_tokens: model.maxTokens,
+	};
+
+	const res = await ctx.fetchImpl(endpoint, {
+		method: "POST",
+		signal,
+		headers: {
+			"Content-Type": "application/json",
+			Accept: "text/event-stream",
+			...(ctx.apiKey ? { Authorization: `Bearer ${ctx.apiKey}` } : {}),
+		},
+		body: JSON.stringify(body),
+	});
+
+	if (!res.ok || !res.body) {
+		const errText = await safeReadText(res);
+		throw new Error(`Poe emulated request failed: HTTP ${res.status} ${errText.slice(0, 300)}`);
+	}
+
+	return parseSseLive(res.body, ctx.stream, output, hasTools);
+}
+
+/**
+ * Parse SSE stream with live text emission. Emits `text_start` / `text_delta`
+ * as tokens arrive. Suppresses the `<tool_calls>` region.
+ */
+async function parseSseLive(
+	body: ReadableStream<Uint8Array>,
+	stream: AssistantMessageEventStream,
+	output: AssistantMessage,
+	hasTools: boolean,
+): Promise<LiveStreamResult> {
+	const reader = body.getReader();
+	const decoder = new TextDecoder();
+	let sseBuffer = "";
+	let fullText = "";
+	let emittedLen = 0;
+	let contentIdx: number | undefined;
+	let usage: Partial<AssistantMessage["usage"]> = {};
+
+	// State machine for tag detection:
+	//   "streaming"  — emitting text deltas live
+	//   "holdback"   — detected possible start of <tool_calls>, buffering until we know
+	//   "suppressed" — inside a <tool_calls> block, all text buffered, not emitted
+	let state: "streaming" | "holdback" | "suppressed" = "streaming";
+	let holdback = ""; // text held back while we decide if it's a tag
+
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		sseBuffer += decoder.decode(value, { stream: true });
+
+		let nl: number;
+		while ((nl = sseBuffer.indexOf("\n")) !== -1) {
+			const rawLine = sseBuffer.slice(0, nl).trim();
+			sseBuffer = sseBuffer.slice(nl + 1);
+			if (!rawLine || !rawLine.startsWith("data:")) continue;
+			const payload = rawLine.slice(5).trim();
+			if (payload === "[DONE]") continue;
+
+			let delta: string | undefined;
+			try {
+				const chunk = JSON.parse(payload) as Record<string, unknown>;
+				delta = (chunk.choices as any[])?.[0]?.delta?.content;
+				const u = chunk.usage as Record<string, unknown> | undefined;
+				if (u) usage = mapOpenAiUsage(u);
+			} catch {
+				continue;
+			}
+
+			if (typeof delta !== "string") continue;
+			fullText += delta;
+
+			if (!hasTools || state === "suppressed") {
+				// No tool detection needed, or we're already past the tag.
+				// Just buffer the text (suppressed) or emit it (no-tools).
+				if (state === "suppressed") continue;
+				// No tools — just emit everything live.
+				emitDelta(delta);
+				continue;
+			}
+
+			// We have tools and need to watch for <tool_calls>.
+			if (state === "streaming") {
+				// Check if this delta contains the tag start.
+				const combined = holdback + delta;
+
+				const tagPos = combined.indexOf(TOOL_TAG_PREFIX);
+				if (tagPos === -1) {
+					// No tag prefix anywhere — emit holdback + delta.
+					if (holdback) {
+						emitDelta(holdback);
+						holdback = "";
+					}
+					emitDelta(delta);
+				} else {
+					// A potential tag start exists. Check if the full tag is present.
+					const fullTagPos = combined.indexOf(TOOL_OPEN_TAG);
+					if (fullTagPos !== -1) {
+						// Full tag found! Emit everything before it, suppress the rest.
+						emitDelta(combined.slice(0, fullTagPos));
+						state = "suppressed";
+						holdback = "";
+					} else {
+						// Partial tag or tag prefix. Emit text before the prefix,
+						// hold back from the prefix onward.
+						const beforeTag = combined.slice(0, tagPos);
+						if (beforeTag) emitDelta(beforeTag);
+						holdback = combined.slice(tagPos);
+						state = "holdback";
+					}
+				}
+			} else if (state === "holdback") {
+				// We're holding back text that might be the start of <tool_calls>.
+				holdback += delta;
+				const fullTagPos = holdback.indexOf(TOOL_OPEN_TAG);
+				if (fullTagPos !== -1) {
+					// Confirmed: the tag is here. Emit anything before it, suppress.
+					const before = holdback.slice(0, fullTagPos);
+					if (before) emitDelta(before);
+					state = "suppressed";
+					holdback = "";
+				} else if (!TOOL_OPEN_TAG.startsWith(holdback)) {
+					// It wasn't a tag prefix after all. Emit the held-back text.
+					emitDelta(holdback);
+					holdback = "";
+					state = "streaming";
+				}
+				// else: still a valid prefix of <tool_calls>, keep holding.
+			}
+		}
+	}
+
+	// If we have leftover holdback, it wasn't a tag — emit it.
+	if (holdback && state === "holdback") {
+		emitDelta(holdback);
+	}
+
+	return { text: fullText, emittedLen, contentIdx, usage };
+
+	/** Helper: emit a text delta, creating the text block if needed. */
+	function emitDelta(d: string) {
+		if (!d) return;
+		if (contentIdx === undefined) {
+			contentIdx = output.content.length;
+			output.content.push({ type: "text", text: "" });
+			stream.push({ type: "text_start", contentIndex: contentIdx, partial: output });
+		}
+		const block = output.content[contentIdx!];
+		if (block.type === "text") {
+			block.text += d;
+			emittedLen += d.length;
+			stream.push({ type: "text_delta", contentIndex: contentIdx!, delta: d, partial: output });
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Buffered HTTP + SSE parsing (for retry attempts)
 // ---------------------------------------------------------------------------
 
 interface RequestResult {
@@ -237,11 +537,11 @@ async function requestFull(
 		throw new Error(`Poe emulated request failed: HTTP ${res.status} ${errText.slice(0, 300)}`);
 	}
 
-	return parseSse(res.body);
+	return parseSseBuffered(res.body);
 }
 
-/** Parse an OpenAI-style SSE stream into the full concatenated text + usage. */
-async function parseSse(body: ReadableStream<Uint8Array>): Promise<RequestResult> {
+/** Parse an OpenAI-style SSE stream into the full concatenated text + usage (no live emission). */
+async function parseSseBuffered(body: ReadableStream<Uint8Array>): Promise<RequestResult> {
 	const reader = body.getReader();
 	const decoder = new TextDecoder();
 	let buffer = "";
@@ -337,10 +637,10 @@ async function safeReadText(res: Response): Promise<string> {
 
 /*
  * Future work:
- *  - Live token streaming during a tool-call turn (currently buffered for
- *    reliable block detection + repair). Stream text deltas and suppress the
- *    `<tool_calls>` region in-flight.
  *  - JSON-schema validation of `arguments` before emitting toolcall_end; on
  *    failure, feed the validation error back through the repair loop.
  *  - Per-model prompt templates (some models prefer XML or fenced-JSON formats).
+ *  - Stray tool block cleanup: if the model emits text then a stray empty
+ *    <tool_calls></tool_calls> block (no actual calls), strip it from the
+ *    already-emitted text in the text_end event.
  */
