@@ -15,7 +15,7 @@ If the upstream repo is not already known from project context (e.g. AGENTS.md),
 
 ```bash
 git remote get-url upstream
-# e.g. https://github.com/utkarshdalal/GameNative.git → UPSTREAM_REPO=utkarshdalal/GameNative
+# e.g. https://github.com/example-org/example-repo.git → UPSTREAM_REPO=example-org/example-repo
 ```
 
 If no `upstream` remote exists, fall back to `origin` and use that as the repo for merge queries.
@@ -37,8 +37,8 @@ Drop `--author @me` to check all open PRs, or replace `@me` with a specific user
 For every PR number from step 2, query the **upstream** repo for mergeability:
 
 ```bash
-gh pr view 1282 --repo utkarshdalal/GameNative --json number,title,mergeable,mergeStateStatus &
-gh pr view 1278 --repo utkarshdalal/GameNative --json number,title,mergeable,mergeStateStatus &
+gh pr view 1282 --repo example-org/example-repo --json number,title,mergeable,mergeStateStatus &
+gh pr view 1278 --repo example-org/example-repo --json number,title,mergeable,mergeStateStatus &
 wait
 ```
 
@@ -55,7 +55,7 @@ GitHub often returns `mergeable: UNKNOWN` on the first query because it hasn't c
 - Re-query **only those PRs** in parallel:
   ```bash
   sleep 10
-  gh pr view 1076 --repo utkarshdalal/GameNative --json number,title,mergeable,mergeStateStatus &
+  gh pr view 1076 --repo example-org/example-repo --json number,title,mergeable,mergeStateStatus &
   # ... only UNKNOWN PRs ...
   wait
   ```

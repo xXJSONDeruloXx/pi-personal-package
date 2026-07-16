@@ -63,15 +63,11 @@ Notable files:
 Local Pi skills, including:
 - CI fix/watch workflows
 - PR conflict and review monitoring
-- GameNative debugging/research helpers
 - media compression/export helpers
 - a local Ralph wrapper
 
 Included skills:
 - `skills/ci-fix-watch/`
-- `skills/gamenative-cloud-save-debug/`
-- `skills/gamenative-discord-research/`
-- `skills/gamenative-screen-recording-export/`
 - `skills/media-under-size/`
 - `skills/pr-conflict-check/`
 - `skills/pr-review-watch/`
