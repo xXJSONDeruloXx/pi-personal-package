@@ -90,7 +90,6 @@ Project helper scripts used during development.
 This package also bundles a set of Pi packages so they install together:
 - `@0xkobold/pi-autoupdate`
 - `@aliou/pi-processes`
-- `@ifi/pi-extension-subagents`
 - `@tmustier/pi-files-widget`
 - `@tmustier/pi-ralph-wiggum`
 - `latchkey`

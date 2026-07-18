@@ -19,7 +19,6 @@
   "dependencies": {
     "@0xkobold/pi-autoupdate": "^0.1.0",
     "@aliou/pi-processes": "^0.7.0",
-    "@ifi/pi-extension-subagents": "^0.4.4",
     "@tmustier/pi-files-widget": "^0.1.15",
     "latchkey": "^2.5.5",
     "pi-extensions": "git+https://github.com/xXJSONDeruloXx/pi-extensions-ralph.git#5a9439a78f26715f34b2d1e447727da1a96c4957",
@@ -34,7 +33,6 @@
   "bundledDependencies": [
     "@0xkobold/pi-autoupdate",
     "@aliou/pi-processes",
-    "@ifi/pi-extension-subagents",
     "@tmustier/pi-files-widget",
     "latchkey",
     "pi-extensions",
@@ -54,8 +52,6 @@
       "./node_modules/@0xkobold/pi-autoupdate/index.ts",
       "./node_modules/@aliou/pi-processes/src/index.ts",
       "./extensions/codex-usage-widget.ts",
-      "./node_modules/@ifi/pi-extension-subagents/index.ts",
-      "./node_modules/@ifi/pi-extension-subagents/notify.ts",
       "./node_modules/@tmustier/pi-files-widget/index.ts",
       "./node_modules/pi-extensions/pi-ralph-wiggum/index.ts",
       "./node_modules/pi-command-center/extensions/command-center/index.ts",
@@ -82,7 +78,6 @@
   "bundleDependencies": [
     "@0xkobold/pi-autoupdate",
     "@aliou/pi-processes",
-    "@ifi/pi-extension-subagents",
     "@tmustier/pi-files-widget",
     "latchkey",
     "pi-extensions",
