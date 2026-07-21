@@ -1,11 +1,8 @@
 /**
  * Kurt Klaw startup banner.
  *
- * Renders a branded ASCII art splash as the very first message in the
- * conversation each time pi launches fresh (session_start reason: "startup").
- *
- * Uses pi's custom message renderer so the banner sits inline in the
- * chat history at the top, not as a widget or overlay.
+ * Renders a branded splash as a durable custom entry when pi starts fresh.
+ * The splash is visible in the transcript, but stays out of LLM context.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -32,7 +29,7 @@ const LOGO = [
 ] as const;
 
 export default function kurtKlawBanner(pi: ExtensionAPI) {
-	pi.registerMessageRenderer(TYPE, (_message, _options, theme) => {
+	pi.registerEntryRenderer(TYPE, (_entry, _options, theme) => {
 		const lines = [
 			theme.fg("accent", LOGO[0]),
 			theme.fg("accent", LOGO[1]),
@@ -51,9 +48,8 @@ export default function kurtKlawBanner(pi: ExtensionAPI) {
 		return new Text(lines.join("\n"), 0, 0);
 	});
 
-	// Filter the banner out of LLM context so it doesn't consume tokens.
-	// The message still appears in the TUI via the custom renderer,
-	// but the context hook strips it before it reaches the provider.
+	// Backward-compat cleanup for older sessions that already stored the banner
+	// as a custom message instead of a custom entry.
 	pi.on("context", async (event) => {
 		const filtered = event.messages.filter(
 			(m: Record<string, unknown>) => !("customType" in m && m.customType === TYPE),
@@ -61,8 +57,9 @@ export default function kurtKlawBanner(pi: ExtensionAPI) {
 		return { messages: filtered };
 	});
 
-	pi.on("session_start", (event) => {
-		if (event.reason !== "startup" && event.reason !== "new") return;
-		pi.sendMessage({ customType: TYPE, content: "Kurt Klaw", display: true });
+	pi.on("session_start", (event, ctx) => {
+		if (!ctx.hasUI) return;
+		if (event.reason !== "startup" && event.reason !== "new" && event.reason !== "fork") return;
+		pi.appendEntry(TYPE);
 	});
 }
