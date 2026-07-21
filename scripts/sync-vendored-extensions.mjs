@@ -13,12 +13,6 @@ const PACKAGES = [
 		rootPatterns: [/^index\.ts$/, /^package\.json$/],
 	},
 	{
-		source: "@ifi/pi-extension-subagents",
-		dest: "pi-extension-subagents",
-		rootPatterns: [/\.ts$/, /^package\.json$/],
-		paths: ["agents"],
-	},
-	{
 		source: "@tmustier/pi-files-widget",
 		dest: "pi-files-widget",
 		rootPatterns: [/\.ts$/, /^package\.json$/],
