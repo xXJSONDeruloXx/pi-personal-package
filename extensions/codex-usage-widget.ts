@@ -4,8 +4,8 @@
  * for a shared global provider-widget visibility override.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";

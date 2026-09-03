@@ -7,7 +7,7 @@
  *  2. Shows live traffic-light circles in front of the π — 🟢 / 🟡 / 🔴.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { exec } from "node:child_process";

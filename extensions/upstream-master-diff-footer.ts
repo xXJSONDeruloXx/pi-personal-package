@@ -1,8 +1,8 @@
 import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, type Theme } from "@mariozechner/pi-tui";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, type Theme } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { execShell, parseNumstat, shellQuote } from "./lib/git.ts";
 

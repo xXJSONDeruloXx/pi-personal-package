@@ -1,5 +1,5 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { InteractiveMode } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,8 +24,25 @@ const DEFAULT_WIDGET_ORDER = [
 ];
 
 // ── Widget order: patch InteractiveMode.prototype.renderWidgetContainer ────
+// Guarded: if a future Pi release renames/removes this method, the extension
+// keeps working (minus widget ordering) and warns once instead of crashing.
 
+let renderWidgetContainerMissing = false;
 let activeWidgetOrder: string[] = [...DEFAULT_WIDGET_ORDER];
+
+const origRenderWidgetContainer = (InteractiveMode.prototype as any).renderWidgetContainer;
+if (typeof origRenderWidgetContainer === "function") {
+  (InteractiveMode.prototype as any).renderWidgetContainer = function (
+    container: unknown,
+    widgets: Map<string, unknown>,
+    spacerWhenEmpty: boolean,
+    leadingSpacer: boolean,
+  ) {
+    origRenderWidgetContainer.call(this, container, sortWidgetMap(widgets), spacerWhenEmpty, leadingSpacer);
+  };
+} else {
+  renderWidgetContainerMissing = true;
+}
 
 function sortWidgetMap(widgets: Map<string, unknown>): Map<string, unknown> {
 	return new Map(
@@ -38,16 +55,6 @@ function sortWidgetMap(widgets: Map<string, unknown>): Map<string, unknown> {
 		}),
 	);
 }
-
-const origRenderWidgetContainer = (InteractiveMode.prototype as any).renderWidgetContainer;
-(InteractiveMode.prototype as any).renderWidgetContainer = function (
-	container: unknown,
-	widgets: Map<string, unknown>,
-	spacerWhenEmpty: boolean,
-	leadingSpacer: boolean,
-) {
-	origRenderWidgetContainer.call(this, container, sortWidgetMap(widgets), spacerWhenEmpty, leadingSpacer);
-};
 
 // ── Settings persistence ───────────────────────────────────────────────────
 
@@ -78,6 +85,7 @@ async function persistWidgetOrder(order: string[]): Promise<void> {
 export default function providerWidgetControls(pi: ExtensionAPI) {
 	let currentVisibility: ProviderWidgetVisibility | null = null;
 	let settingsWriteQueue: Promise<void> = Promise.resolve();
+	let patchWarningShown = false;
 
 	const queuePersistOrder = (ctx: ExtensionContext) => {
 		const snapshot = [...activeWidgetOrder];
@@ -95,6 +103,15 @@ export default function providerWidgetControls(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (renderWidgetContainerMissing && !patchWarningShown) {
+			patchWarningShown = true;
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					"Provider widgets: InteractiveMode.renderWidgetContainer is unavailable; widget ordering disabled.",
+					"warning",
+				);
+			}
+		}
 		try {
 			currentVisibility = await loadGlobalProviderWidgetVisibility();
 		} catch {
