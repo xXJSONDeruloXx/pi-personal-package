@@ -43,7 +43,6 @@ Local Pi extensions, including:
 - provider/widget controls
 - usage widgets
 - UI tweaks like banners and token-stat hiding
-- a custom `poe-provider/` integration with tests and model/client helpers
 
 Notable files:
 - `extensions/auto-title.ts`
@@ -57,7 +56,6 @@ Notable files:
 - `extensions/provider-widget-controls.ts`
 - `extensions/upstream-master-diff-footer.ts`
 - `extensions/zai-usage-widget.ts`
-- `extensions/poe-provider/`
 
 ### `skills/`
 Local Pi skills, including:

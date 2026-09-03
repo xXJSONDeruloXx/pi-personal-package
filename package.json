@@ -58,7 +58,6 @@
       "./node_modules/pi-continuous-learning/dist/index.js",
       "./node_modules/pi-hide-messages/index.ts",
       "./node_modules/pi-interactive-shell/index.ts",
-      "./extensions/poe-provider/index.ts",
       "./node_modules/pi-stash/src/stash.ts",
       "./node_modules/pi-tool-display/index.ts"
     ],
@@ -71,9 +70,7 @@
     ]
   },
   "scripts": {
-    "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py",
-    "test": "vitest run extensions/poe-provider/",
-    "test:watch": "vitest extensions/poe-provider/"
+    "check": "python3 -m py_compile skills/pr-review-watch/scripts/pr_review_watch.py"
   },
   "bundleDependencies": [
     "@0xkobold/pi-autoupdate",
@@ -87,8 +84,5 @@
     "pi-interactive-shell",
     "pi-stash",
     "pi-tool-display"
-  ],
-  "devDependencies": {
-    "vitest": "^4.1.5"
-  }
+  ]
 }
