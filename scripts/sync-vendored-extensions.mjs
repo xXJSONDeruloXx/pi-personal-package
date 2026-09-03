@@ -29,12 +29,6 @@ const PACKAGES = [
 		paths: ["extensions/command-center"],
 	},
 	{
-		source: "pi-hide-messages",
-		dest: "pi-hide-messages",
-		rootPatterns: [/^config\.json$/, /^index\.ts$/, /^package\.json$/],
-		paths: ["config", "src"],
-	},
-	{
 		source: "pi-interactive-shell",
 		dest: "pi-interactive-shell",
 		rootPatterns: [/\.ts$/, /^package\.json$/, /^SKILL\.md$/],

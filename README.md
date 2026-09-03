@@ -91,7 +91,6 @@ This package also bundles a set of Pi packages so they install together:
 - `latchkey`
 - `pi-command-center`
 - `pi-continuous-learning`
-- `pi-hide-messages`
 - `pi-interactive-shell`
 - `pi-stash`
 - `pi-tool-display`
