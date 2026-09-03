@@ -19,7 +19,6 @@ const WIDGET_ORDER_KEY = "widgetOrder";
 
 const DEFAULT_WIDGET_ORDER = [
 	"codex-usage-widget",
-	"copilot-usage-widget",
 	"zai-usage-widget",
 	"base-diff-widget",
 ];
@@ -134,12 +133,11 @@ export default function providerWidgetControls(pi: ExtensionAPI) {
 	// ── /provider-widget-order ───────────────────────────────────────────
 
 	pi.registerCommand("provider-widget-order", {
-		description: "Set widget display order. Args: space-separated keys or short names (codex copilot zai)",
+		description: "Set widget display order. Args: space-separated keys or short names (codex zai)",
 		getArgumentCompletions: (prefix: string) => {
 			const p = prefix.trim().toLowerCase().split(/\s+/).pop() ?? "";
 			const items = [
 				{ value: "codex", label: "codex", description: "codex-usage-widget" },
-				{ value: "copilot", label: "copilot", description: "copilot-usage-widget" },
 				{ value: "zai", label: "zai", description: "zai-usage-widget" },
 			];
 			if (!p) return items;
@@ -149,7 +147,6 @@ export default function providerWidgetControls(pi: ExtensionAPI) {
 		handler: async (args, ctx) => {
 			const SHORT: Record<string, string> = {
 				codex: "codex-usage-widget",
-				copilot: "copilot-usage-widget",
 				zai: "zai-usage-widget",
 			};
 

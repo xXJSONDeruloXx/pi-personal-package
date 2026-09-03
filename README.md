@@ -42,15 +42,13 @@ Local Pi extensions, including:
 - notifications
 - provider/widget controls
 - usage widgets
-- UI tweaks like banners and token-stat hiding
+- UI tweaks like token-stat hiding
 
 Notable files:
 - `extensions/auto-title.ts`
 - `extensions/codex-usage-widget.ts`
-- `extensions/copilot-usage-widget.ts`
 - `extensions/diff.ts`
 - `extensions/hide-token-stats.ts`
-- `extensions/kurt-klaw-banner.ts`
 - `extensions/notifications.ts`
 - `extensions/pifinity.ts`
 - `extensions/provider-widget-controls.ts`
